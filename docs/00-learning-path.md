@@ -57,20 +57,20 @@
 - [09: deterministic DAG-CBOR](09-dag-cbor.md)
 - [10: multihash / CID / multibase](10-cid.md)
 - [11: CAR v1](11-car.md)
-- 12: Merkle Search Tree
+- [12: Merkle Search Tree](12-mst.md)
 
 ここが protocol の中心です。便利な CBOR/IPLD ライブラリで隠さず、限定した正しい codec を作ります。
 
 ### Phase 4: repository を認証する
 
-- 13: P-256、署名、commit、revision
+- [13: P-256、署名、commit、revision](13-signed-repository.md)
 
 レコード単体ではなく、repository root に署名する意味を確認します。
 
 ### Phase 5: client と PDS を接続する
 
-- 14: 実用 CLI client
-- 15: 最小 PDS
+- [14: 実用 CLI client](14-client.md)
+- [15: 最小 PDS](15-local-pds.md)
 
 `createRecord` から commit、block store、`getRecord`、`getRepo` までを一本につなぎます。
 

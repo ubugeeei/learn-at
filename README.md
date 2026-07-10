@@ -20,6 +20,14 @@ $ nix develop --command sbt verify
 $ nix develop --command sbt run
 ```
 
+Run the local client/server exercise:
+
+```console
+$ LEARN_AT_PASSWORD=local-secret nix develop --command sbt "runMain learnat.Main pds 2583"
+$ LEARN_AT_PASSWORD=local-secret nix develop --command sbt \
+    'runMain learnat.Main client post http://localhost:2583 alice.test com.example.note "hello"'
+```
+
 入口は [学習ロードマップ](docs/00-learning-path.md) です。環境の詳細は [Nix で学習環境を作る](docs/02-environment.md)、用語に詰まったら [用語集](docs/glossary.md) を参照してください。
 
 ## 到達点

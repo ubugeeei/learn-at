@@ -48,7 +48,8 @@ object AuthTests:
       val store = SessionStore.testing(Array.fill[Byte](32)(9), () => now, accessLifetimeSeconds = 10).toOption.get
       val token = store.issue(did).accessJwt
       assert(store.verifyAccess(token).isRight)
-      val tampered = token.updated(token.length - 1, if token.last == 'a' then 'b' else 'a')
+      val signatureStart = token.lastIndexOf('.') + 1
+      val tampered = token.updated(signatureStart, if token.charAt(signatureStart) == 'a' then 'b' else 'a')
       isLeft(store.verifyAccess(tampered))
       assert(store.revoke(token).isRight)
       isLeft(store.verifyAccess(token))
@@ -61,4 +62,3 @@ object AuthTests:
     test("requires a 256-bit session signing secret") {
       isLeft(SessionStore.testing(Array.fill[Byte](31)(1), () => 0L))
     }
-

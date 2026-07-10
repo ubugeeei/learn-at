@@ -1,0 +1,73 @@
+package learnat.tests
+
+import learnat.syntax.*
+import learnat.tests.TestKit.*
+
+object SyntaxTests:
+  def run(): Unit =
+    println("Syntax")
+
+    test("distinguishes DIDs from handles") {
+      val did = AtIdentifier.parse("did:plc:7iza6de2dwap2sbkpav7c6c6")
+      val handle = AtIdentifier.parse("alice.bsky.social")
+      assert(did.exists(_.isInstanceOf[AtIdentifier.DidIdentifier]))
+      assert(handle.exists(_.isInstanceOf[AtIdentifier.HandleIdentifier]))
+    }
+
+    test("validates DID syntax separately from supported methods") {
+      val generic = Did.parse("did:example:123")
+      assert(generic.isRight)
+      equal(generic.map(_.isSupportedByAtproto), Right(false))
+      isLeft(Did.parse("DID:plc:123"))
+      isLeft(Did.parse("did:plc:"))
+    }
+
+    test("validates and normalizes handles") {
+      equal(Handle.parse("Alice.BSKY.Social").map(_.normalized), Right("alice.bsky.social"))
+      isLeft(Handle.parse("john"))
+      isLeft(Handle.parse("john-.test"))
+      isLeft(Handle.parse("127.0.0.1"))
+    }
+
+    test("splits NSID authority and name") {
+      val nsid = Nsid.parse("com.Example.getThing")
+      equal(nsid.map(_.authority), Right("Example.com"))
+      equal(nsid.map(_.name), Right("getThing"))
+      equal(nsid.map(_.normalized), Right("com.example.getThing"))
+      isLeft(Nsid.parse("com.example"))
+      isLeft(Nsid.parse("com.example.get-thing"))
+    }
+
+    test("accepts general record keys but rejects path traversal segments") {
+      assert(RecordKey.parse("literal:self").isRight)
+      assert(RecordKey.parse("~1.2-3_").isRight)
+      isLeft(RecordKey.parse("."))
+      isLeft(RecordKey.parse(".."))
+      isLeft(RecordKey.parse("alpha/beta"))
+    }
+
+    test("parses strict AT URIs into typed parts") {
+      val input = "at://did:plc:asdf123/com.atproto.feed.post/3jzfcijpj2z2a#/text"
+      val parsed = AtUri.parse(input)
+      equal(parsed.map(_.toString), Right(input))
+      equal(parsed.flatMap(_.collection.toRight(SyntaxError("test", input, "missing"))).map(_.value), Right("com.atproto.feed.post"))
+      isLeft(AtUri.parse("at://did:plc:asdf123/com.atproto.feed.post/"))
+      isLeft(AtUri.parse("at://did:plc:asdf123?query=true"))
+    }
+
+    test("encodes and decodes the 64-bit TID layout") {
+      val tid = Tid.fromParts(1_688_656_168_744_000L, 8)
+      assert(tid.isRight)
+      equal(tid.flatMap(value => Tid.parse(value.value)).map(_.timestampMicros), Right(1_688_656_168_744_000L))
+      equal(tid.flatMap(value => Tid.parse(value.value)).map(_.clockId), Right(8))
+      isLeft(Tid.parse("3JZFCIJPJ2Z2A"))
+    }
+
+    test("generates strictly increasing TIDs across clock stalls") {
+      val generator = TidGenerator.deterministic(() => 1_700_000_000_000_000L, 7).toOption.get
+      val first = generator.next()
+      val second = generator.next()
+      assert(second.newerThan(first))
+      equal(second.timestampMicros, first.timestampMicros + 1)
+    }
+

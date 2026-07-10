@@ -5,6 +5,7 @@ import java.math.BigInteger
 import java.security.AlgorithmParameters
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
+import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.PublicKey
 import java.security.Signature
@@ -66,6 +67,12 @@ object Base58Btc:
 final class P256PublicKey private[crypto] (private val key: ECPublicKey):
   /** Returns the 33-byte compressed SEC1 point. */
   def compressedBytes: ByteString = ByteString(P256.compress(key))
+
+  /** Returns the fixed-width unsigned JWK x coordinate. */
+  def xCoordinate: ByteString = ByteString(P256.coordinate(key.getW.getAffineX))
+
+  /** Returns the fixed-width unsigned JWK y coordinate. */
+  def yCoordinate: ByteString = ByteString(P256.coordinate(key.getW.getAffineY))
 
   /** Returns the current DID-document `publicKeyMultibase` string. */
   def multikey: String = s"z${Base58Btc.encode(P256.MulticodecPrefix ++ compressedBytes.toArray)}"
@@ -140,6 +147,17 @@ object P256:
   def publicKeyFromDidKey(value: String): Either[CryptoError, P256PublicKey] =
     if !value.startsWith("did:key:") then Left(CryptoError("expected did:key identifier"))
     else publicKeyFromMultikey(value.drop(8))
+
+  /** Restores a P-256 public key from fixed-width JWK coordinates. */
+  def publicKeyFromCoordinates(x: Array[Byte], y: Array[Byte]): Either[CryptoError, P256PublicKey] =
+    if x.length != CoordinateLength || y.length != CoordinateLength then
+      Left(CryptoError("P-256 JWK coordinates must each contain 32 bytes"))
+    else
+      val prefix = if (y.last & 1) == 0 then 0x02.toByte else 0x03.toByte
+      decompress(Array(prefix) ++ x).flatMap { publicKey =>
+        if MessageDigest.isEqual(coordinate(publicKey.getW.getAffineY), y) then Right(new P256PublicKey(publicKey))
+        else Left(CryptoError("P-256 JWK coordinates do not describe the same curve point"))
+      }
 
   private[crypto] def compress(key: ECPublicKey): Array[Byte] =
     val point = key.getW
@@ -267,3 +285,5 @@ object P256:
     val magnitude = if signed.length > length && signed.head == 0 then signed.tail else signed
     if magnitude.length > length then throw IllegalArgumentException(s"integer does not fit in $length bytes")
     Array.fill[Byte](length - magnitude.length)(0) ++ magnitude
+
+  private[crypto] def coordinate(value: BigInteger): Array[Byte] = fixedUnsigned(value, CoordinateLength)

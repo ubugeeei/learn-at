@@ -33,13 +33,13 @@
 
 - [01: AT Protocol のメンタルモデル](01-mental-model.md)
 - [02: Nix で学習環境を作る](02-environment.md)
-- 03: Scala 3 と型で不変条件を表す
+- [03: Scala 3 と型で不変条件を表す](03-scala-foundations.md)
 
 この段階では「分散型」という言葉を曖昧に使わず、identity、hosting、data、indexing が別々に移動・検証できることを捉えます。
 
 ### Phase 1: 普通の HTTP として触る
 
-- 04: 依存ゼロ JSON codec
+- [04: 依存ゼロ JSON codec](04-json.md)
 - 05: DID / handle / NSID / AT URI / record key / TID
 - 06: XRPC query と procedure
 

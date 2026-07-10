@@ -7,6 +7,7 @@ import java.net.InetSocketAddress
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.nio.file.Path
 import java.util.Arrays
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
@@ -35,7 +36,8 @@ final case class LocalPdsConfig(
     port: Int = 2583,
     bindAddress: String = "127.0.0.1",
     workerThreads: Int = 4,
-    maxJsonBodyBytes: Int = 1024 * 1024
+    maxJsonBodyBytes: Int = 1024 * 1024,
+    dataDirectory: Option[Path] = None
 )
 
 /**
@@ -78,13 +80,26 @@ object LocalPds:
         val service = URI.create(s"http://localhost:$actualPort")
         val passwordCopy = config.password.clone()
         val passwordHash = try PasswordHash.create(passwordCopy) finally Arrays.fill(passwordCopy, '\u0000')
+        val store = config.dataDirectory.map(LocalPdsStore(_))
         val initialized = for
           did <- Did.parse(s"did:web:localhost%3A$actualPort").left.map(error => LocalPdsError(error.toString))
-          signingKey <- P256KeyPair.generate().left.map(error => LocalPdsError(error.toString))
+          restored <- store.fold[Either[LocalPdsError, Option[StoredPdsState]]](Right(None))(_.load(did))
+          signingKey <- restored match
+            case Some(value) => Right(value.signingKey)
+            case None => P256KeyPair.generate().left.map(error => LocalPdsError(error.toString))
           verifiedPassword <- passwordHash.left.map(error => LocalPdsError(error.toString))
-          repository <- Repository.create(did, signingKey, TidGenerator.system()).left.map(error => LocalPdsError(error.toString))
-        yield (did, signingKey, verifiedPassword, repository)
-        initialized.map { (did, signingKey, verifiedPassword, repository) =>
+          initialRecords = restored.fold(Vector.empty[RepositoryRecord])(_.records)
+          previousRevision = restored.map(_.lastRevision)
+          repository <- Repository.create(
+            did,
+            signingKey,
+            TidGenerator.system(),
+            initialRecords,
+            previousRevision
+          ).left.map(error => LocalPdsError(error.toString))
+          _ <- store.fold[Either[LocalPdsError, Unit]](Right(()))(_.save(did, signingKey, repository))
+        yield (did, signingKey, verifiedPassword, repository, store)
+        initialized.map { (did, signingKey, verifiedPassword, repository, store) =>
           val state = LocalPdsState(
             did,
             config.handle,
@@ -93,7 +108,8 @@ object LocalPds:
             verifiedPassword,
             SessionStore.secure(),
             TidGenerator.system(),
-            repository
+            repository,
+            store
           )
           val createdExecutor = Executors.newFixedThreadPool(config.workerThreads)
           executor = Some(createdExecutor)
@@ -118,15 +134,20 @@ private final class LocalPdsState(
     val passwordHash: PasswordHash,
     val sessions: SessionStore,
     val recordKeyGenerator: TidGenerator,
-    private var repositoryState: Repository
+    private var repositoryState: Repository,
+    val store: Option[LocalPdsStore]
 ):
   def currentRepository: Repository = synchronized(repositoryState)
 
   def applyWrite(write: RepositoryWrite): Either[PdsFailure, Repository] = synchronized {
-    repositoryState.applyWrite(write).left.map(error => PdsFailure(400, "InvalidRequest", error.message)).map { updated =>
+    for
+      updated <- repositoryState.applyWrite(write).left.map(error => PdsFailure(400, "InvalidRequest", error.message))
+      _ <- store.fold[Either[PdsFailure, Unit]](Right(()))(
+        _.save(did, signingKey, updated).left.map(error => PdsFailure(500, "InternalServerError", error.message))
+      )
+    yield
       repositoryState = updated
       updated
-    }
   }
 
 private object LocalPdsState:
@@ -138,9 +159,10 @@ private object LocalPdsState:
       passwordHash: PasswordHash,
       sessions: SessionStore,
       recordKeyGenerator: TidGenerator,
-      repository: Repository
+      repository: Repository,
+      store: Option[LocalPdsStore]
   ): LocalPdsState =
-    new LocalPdsState(did, handle, service, signingKey, passwordHash, sessions, recordKeyGenerator, repository)
+    new LocalPdsState(did, handle, service, signingKey, passwordHash, sessions, recordKeyGenerator, repository, store)
 
 private final case class PdsFailure(status: Int, code: String, message: String)
 private final case class PdsResponse(status: Int, contentType: String, bytes: Array[Byte])
@@ -477,11 +499,12 @@ object LocalPdsMain:
   def main(args: Array[String]): Unit =
     val port = args.headOption.flatMap(_.toIntOption).getOrElse(2583)
     val password = sys.env.getOrElse("LEARN_AT_PASSWORD", "change-me-in-the-environment").toCharArray
+    val dataDirectory = Path.of(sys.env.getOrElse("LEARN_AT_DATA", "data/local-pds"))
     val handle = Handle.parse(sys.env.getOrElse("LEARN_AT_HANDLE", "alice.test")).fold(
       error => throw IllegalArgumentException(error.toString),
       identity
     )
-    val running = LocalPds.start(LocalPdsConfig(handle, password, port)).fold(
+    val running = LocalPds.start(LocalPdsConfig(handle, password, port, dataDirectory = Some(dataDirectory))).fold(
       error => throw IllegalStateException(error.toString),
       identity
     )

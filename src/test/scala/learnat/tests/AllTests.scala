@@ -17,4 +17,5 @@ object AllTests:
     RepositoryTests.run()
     AuthTests.run()
     LocalPdsE2eTests.run()
+    LocalPdsPersistenceTests.run()
     println(s"${TestKit.count} tests passed")

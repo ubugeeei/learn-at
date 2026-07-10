@@ -130,7 +130,8 @@ object Repository:
       did: Did,
       signingKey: P256KeyPair,
       tidGenerator: TidGenerator,
-      initialRecords: Vector[RepositoryRecord] = Vector.empty
+      initialRecords: Vector[RepositoryRecord] = Vector.empty,
+      previousRevision: Option[Tid] = None
   ): Either[RepositoryError, Repository] =
     val duplicate = initialRecords.groupMapReduce(_.path)(_ => 1)(_ + _).collectFirst { case (path, count) if count > 1 => path }
     duplicate match
@@ -141,7 +142,7 @@ object Repository:
             records <- result
             _ <- validateRecord(record)
           yield records.updated(record.path, record)
-        }.flatMap(records => commit(did, signingKey, tidGenerator, records, None, None))
+        }.flatMap(records => commit(did, signingKey, tidGenerator, records, previousRevision, None))
 
   private[repo] def commit(
       did: Did,

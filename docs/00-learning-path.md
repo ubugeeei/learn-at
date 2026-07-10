@@ -98,8 +98,8 @@ user-facing client target is the [AT Protocol OAuth profile](https://atproto.com
 
 ### Phase 8: Evaluate production readiness
 
-- 18: Federation with AppView, Relay, and Labeler
-- 19: Persistence, keys, abuse, moderation, observability, and backup
+- [18: Federation with AppView, Relay, and Labeler](18-federation.md)
+- [19: Production-readiness review](19-production-readiness.md)
 
 These chapters turn the difference between “a PDS responds” and “a PDS is safe
 to expose to the internet” into an explicit checklist.

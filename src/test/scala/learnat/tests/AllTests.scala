@@ -17,6 +17,7 @@ object AllTests:
     InteropCryptoTests.run()
     RepositoryTests.run()
     AuthTests.run()
+    OAuthTests.run()
     LocalPdsE2eTests.run()
     LocalPdsPersistenceTests.run()
     SyncTests.run()

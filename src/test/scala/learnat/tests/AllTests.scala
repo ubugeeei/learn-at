@@ -16,4 +16,5 @@ object AllTests:
     InteropCryptoTests.run()
     RepositoryTests.run()
     AuthTests.run()
+    LocalPdsE2eTests.run()
     println(s"${TestKit.count} tests passed")

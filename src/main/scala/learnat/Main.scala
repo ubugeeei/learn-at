@@ -5,6 +5,7 @@ object Main:
     val command = args.headOption.getOrElse("help")
     command match
       case "help" => printHelp()
+      case "pds" => learnat.pds.LocalPdsMain.main(args.drop(1))
       case other =>
         Console.err.println(s"unknown command: $other")
         printHelp()
@@ -16,8 +17,8 @@ object Main:
         |
         |usage:
         |  learn-at help
+        |  learn-at pds [port]
         |
         |ハンズオンは docs/00-learning-path.md から始めてください。
         |""".stripMargin
     )
-

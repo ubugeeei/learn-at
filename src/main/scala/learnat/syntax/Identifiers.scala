@@ -2,9 +2,11 @@ package learnat.syntax
 
 import java.security.SecureRandom
 
+/** A located semantic explanation for an invalid protocol identifier. */
 final case class SyntaxError(kind: String, input: String, message: String):
   override def toString: String = s"invalid $kind '$input': $message"
 
+/** Value-equal base for strings constructible only through validated parsers. */
 sealed abstract class ValidatedString protected (val value: String):
   final override def toString: String = value
   final override def hashCode(): Int = 31 * getClass.hashCode + value.hashCode
@@ -12,13 +14,18 @@ sealed abstract class ValidatedString protected (val value: String):
     case identifier: ValidatedString => getClass == identifier.getClass && value == identifier.value
     case _ => false
 
+/** Durable decentralized account identifier with generic DID syntax. */
 final class Did private (value: String) extends ValidatedString(value):
+  /** DID method segment, such as `plc` or `web`. */
   def method: String = value.split(':')(1)
+
+  /** Whether the method belongs to the current interoperable atproto profile. */
   def isSupportedByAtproto: Boolean = method == "plc" || method == "web"
 
 object Did:
   private val Pattern = "^did:[a-z]+:[a-zA-Z0-9._:%-]*[a-zA-Z0-9._-]$".r
 
+  /** Validates generic atproto DID string syntax without performing resolution. */
   def parse(input: String): Either[SyntaxError, Did] =
     if input.length > 2048 then invalid(input, "exceeds 2048 characters")
     else if Pattern.matches(input) then Right(new Did(input))
@@ -27,13 +34,16 @@ object Did:
   private def invalid(input: String, message: String): Left[SyntaxError, Did] =
     Left(SyntaxError("DID", input, message))
 
+/** Human-facing, DNS-shaped, changeable account name. */
 final class Handle private (value: String) extends ValidatedString(value):
+  /** ASCII lower-case representation for comparison and resolution. */
   def normalized: String = value.toLowerCase(java.util.Locale.ROOT)
 
 object Handle:
   private val Pattern =
     "^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\\.)+[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$".r
 
+  /** Validates handle syntax without querying DNS or HTTPS. */
   def parse(input: String): Either[SyntaxError, Handle] =
     if input.length > 253 then invalid(input, "exceeds 253 characters")
     else if Pattern.matches(input) then Right(new Handle(input))
@@ -42,29 +52,37 @@ object Handle:
   private def invalid(input: String, message: String): Left[SyntaxError, Handle] =
     Left(SyntaxError("handle", input, message))
 
+/** An account input that is unambiguously either a DID or handle. */
 enum AtIdentifier:
   case DidIdentifier(value: Did)
   case HandleIdentifier(value: Handle)
 
+  /** Original identifier text for XRPC parameters. */
   def text: String = this match
     case DidIdentifier(did) => did.value
     case HandleIdentifier(handle) => handle.value
 
 object AtIdentifier:
+  /** Parses by the reserved `did:` prefix; handles cannot contain a colon. */
   def parse(input: String): Either[SyntaxError, AtIdentifier] =
     if input.startsWith("did:") then Did.parse(input).map(AtIdentifier.DidIdentifier.apply)
     else Handle.parse(input).map(AtIdentifier.HandleIdentifier.apply)
 
+/** Reverse-domain Namespaced Identifier for Lexicons and XRPC methods. */
 final class Nsid private (value: String) extends ValidatedString(value):
   private lazy val segments = value.split('.').toVector
+  /** Final case-sensitive definition or method name. */
   def name: String = segments.last
+  /** Domain authority in ordinary domain order. */
   def authority: String = segments.init.reverse.mkString(".")
+  /** Lower-case authority plus the original case-sensitive final name. */
   def normalized: String = (segments.init.map(_.toLowerCase(java.util.Locale.ROOT)) :+ name).mkString(".")
 
 object Nsid:
   private val AllowedSegment = "^[a-zA-Z0-9-]+$".r
   private val Name = "^[a-zA-Z][a-zA-Z0-9]{0,62}$".r
 
+  /** Validates NSID length, labels, authority, and final-name syntax. */
   def parse(input: String): Either[SyntaxError, Nsid] =
     val segments = input.split("\\.", -1).toVector
     val authority = segments.dropRight(1)
@@ -83,11 +101,13 @@ object Nsid:
     if valid then Right(new Nsid(input))
     else Left(SyntaxError("NSID", input, "expected reversed domain authority and an alphanumeric name"))
 
+/** General repository record key, before collection-specific key policy. */
 final class RecordKey private (value: String) extends ValidatedString(value)
 
 object RecordKey:
   private val Pattern = "^[a-zA-Z0-9_~.:-]{1,512}$".r
 
+  /** Validates the 1-512 character general record-key syntax. */
   def parse(input: String): Either[SyntaxError, RecordKey] =
     if input != "." && input != ".." && Pattern.matches(input) then Right(new RecordKey(input))
     else
@@ -99,6 +119,7 @@ object RecordKey:
         )
       )
 
+/** Parsed AT URI with typed authority, collection, key, and JSON-pointer fragment. */
 final case class AtUri private (
     authority: AtIdentifier,
     collection: Option[Nsid],
@@ -116,6 +137,7 @@ object AtUri:
   private val Allowed = "^[a-zA-Z0-9._~:@!$&'()*+,;=%/\\[\\]#?-]+$".r
   private val Fragment = "^/[a-zA-Z0-9._~:@!$&')(*+,;=%\\[\\]/-]*$".r
 
+  /** Strictly parses an AT URI and rejects query/trailing/extra path segments. */
   def parse(input: String): Either[SyntaxError, AtUri] =
     if input.length > 8192 then invalid(input, "exceeds 8192 characters")
     else if !input.startsWith("at://") then invalid(input, "must start with at://")
@@ -140,6 +162,7 @@ object AtUri:
           yield AtUri(authority, collection, recordKey, fragment)
       }
 
+  /** Constructs a fragment-free URI for one DID-owned repository record. */
   def record(did: Did, collection: Nsid, recordKey: RecordKey): AtUri =
     AtUri(AtIdentifier.DidIdentifier(did), Some(collection), Some(recordKey), None)
 
@@ -169,14 +192,17 @@ object AtUri:
   private def retag(input: String, message: String): SyntaxError = SyntaxError("AT URI", input, message)
   private def invalid[A](input: String, message: String): Left[SyntaxError, A] = Left(retag(input, message))
 
+/** Decoded 13-character sortable Timestamp Identifier. */
 final class Tid private (value: String, val timestampMicros: Long, val clockId: Int)
     extends ValidatedString(value):
+  /** Lexicographic revision ordering defined by the sortable alphabet. */
   def newerThan(other: Tid): Boolean = value > other.value
 
 object Tid:
   private val Alphabet = "234567abcdefghijklmnopqrstuvwxyz"
   private val Pattern = "^[234567abcdefghij][234567abcdefghijklmnopqrstuvwxyz]{12}$".r
 
+  /** Parses the canonical 13-character sortable base32 representation. */
   def parse(input: String): Either[SyntaxError, Tid] =
     if !Pattern.matches(input) then
       Left(SyntaxError("TID", input, "expected 13 base32-sortable characters with the high bit clear"))
@@ -184,6 +210,7 @@ object Tid:
       val raw = input.foldLeft(0L) { (acc, char) => (acc << 5) | Alphabet.indexOf(char).toLong }
       Right(new Tid(input, raw >>> 10, (raw & 0x3ffL).toInt))
 
+  /** Encodes the validated 53-bit timestamp and 10-bit clock identifier. */
   def fromParts(timestampMicros: Long, clockId: Int): Either[SyntaxError, Tid] =
     if timestampMicros < 0 || timestampMicros >= (1L << 53) then
       Left(SyntaxError("TID timestamp", timestampMicros.toString, "must fit in 53 non-negative bits"))
@@ -201,9 +228,11 @@ object Tid:
       val encoded = String(chars)
       Right(new Tid(encoded, timestampMicros, clockId))
 
+/** Thread-safe monotonic TID source that tolerates clock stalls and rollback. */
 final class TidGenerator private (nowMicros: () => Long, clockId: Int):
   private var lastTimestamp = -1L
 
+  /** Returns a TID newer than local state and an optional repository revision. */
   def next(previous: Option[Tid] = None): Tid = synchronized {
     val afterLocal = math.max(nowMicros(), lastTimestamp + 1)
     val timestamp = previous.fold(afterLocal)(value => math.max(afterLocal, value.timestampMicros + 1))
@@ -213,12 +242,13 @@ final class TidGenerator private (nowMicros: () => Long, clockId: Int):
   }
 
 object TidGenerator:
+  /** Creates a wall-clock generator with a random ten-bit clock identifier. */
   def system(): TidGenerator =
     val random = SecureRandom()
     new TidGenerator(() => System.currentTimeMillis() * 1000L, random.nextInt(1024))
 
+  /** Creates an injectable generator for time and monotonicity tests. */
   def deterministic(nowMicros: () => Long, clockId: Int): Either[SyntaxError, TidGenerator] =
     if clockId < 0 || clockId > 1023 then
       Left(SyntaxError("TID clock id", clockId.toString, "must fit in 10 bits"))
     else Right(new TidGenerator(nowMicros, clockId))
-

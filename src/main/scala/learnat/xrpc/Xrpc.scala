@@ -9,9 +9,11 @@ import java.time.Duration
 import learnat.json.Json
 import learnat.syntax.Nsid
 
+/** HTTP verbs used by Lexicon query and procedure transports. */
 enum HttpMethod:
   case Get, Post
 
+/** Transport-neutral request with exact URI, headers, bytes, and deadline. */
 final case class HttpRequestData(
     method: HttpMethod,
     uri: URI,
@@ -20,13 +22,18 @@ final case class HttpRequestData(
     timeout: Duration
 )
 
+/** Transport-neutral response retaining repeated header values. */
 final case class HttpResponseData(status: Int, headers: Map[String, Vector[String]], body: Array[Byte]):
+  /** Reads the first value of a case-insensitive HTTP header. */
   def header(name: String): Option[String] =
     headers.collectFirst { case (key, values) if key.equalsIgnoreCase(name) => values.headOption }.flatten
 
+/** Injectable HTTP boundary used by XRPC and deterministic wire tests. */
 trait HttpTransport:
+  /** Sends one already-encoded request. */
   def send(request: HttpRequestData): Either[XrpcError, HttpResponseData]
 
+/** Blocking JDK HTTP client adapter with interruption preservation. */
 final class JdkHttpTransport private (client: HttpClient) extends HttpTransport:
   override def send(request: HttpRequestData): Either[XrpcError, HttpResponseData] =
     try
@@ -50,6 +57,7 @@ final class JdkHttpTransport private (client: HttpClient) extends HttpTransport:
       case error: Exception => Left(XrpcError.Transport(error.getMessage, Some(error)))
 
 object JdkHttpTransport:
+  /** Creates the default redirecting client with a bounded connect timeout. */
   def default: JdkHttpTransport =
     val client = HttpClient.newBuilder()
       .connectTimeout(Duration.ofSeconds(10))
@@ -57,6 +65,7 @@ object JdkHttpTransport:
       .build()
     new JdkHttpTransport(client)
 
+/** Failures separated by service configuration, transport, and remote protocol. */
 enum XrpcError:
   case InvalidService(message: String)
   case Transport(message: String, cause: Option[Throwable])
@@ -64,6 +73,7 @@ enum XrpcError:
   case InvalidResponse(status: Int, message: String)
   case Remote(status: Int, error: String, message: Option[String])
 
+  /** Stable human-facing explanation without losing the typed case. */
   def description: String = this match
     case InvalidService(detail) => detail
     case Transport(detail, _) => detail
@@ -71,18 +81,23 @@ enum XrpcError:
     case InvalidResponse(status, detail) => s"invalid HTTP $status response: $detail"
     case Remote(status, error, detail) => s"XRPC $status $error${detail.fold("")(value => s": $value")}" 
 
+/** Successful raw XRPC response before endpoint-specific body decoding. */
 final case class XrpcResponse(status: Int, headers: Map[String, Vector[String]], body: Array[Byte]):
+  /** Decodes body bytes as UTF-8 for JSON-facing methods. */
   def utf8: String = String(body, StandardCharsets.UTF_8)
 
+  /** Strictly parses the UTF-8 body as one JSON document. */
   def json: Either[XrpcError, Json] =
     Json.parse(utf8).left.map(error => XrpcError.InvalidResponse(status, error.toString))
 
+/** Dependency-light XRPC encoder/decoder bound to one service origin. */
 final class XrpcClient private (
     service: URI,
     transport: HttpTransport,
     timeout: Duration,
     maxResponseBytes: Int
 ):
+  /** Executes a Lexicon query as GET and decodes a JSON success body. */
   def query(
       method: Nsid,
       parameters: Vector[(String, String)] = Vector.empty,
@@ -92,6 +107,7 @@ final class XrpcClient private (
     val uri = URI.create(s"${service.toString}/xrpc/${method.value}${encodeParameters(parameters)}")
     send(HttpMethod.Get, uri, "application/json", None, bearerToken, extraHeaders).flatMap(_.json)
 
+  /** Executes a Lexicon procedure as POST with a JSON request and response. */
   def procedure(
       method: Nsid,
       input: Json,
@@ -109,6 +125,7 @@ final class XrpcClient private (
       extraHeaders
     ).flatMap(_.json)
 
+  /** Executes a query while retaining an arbitrary binary success body. */
   def queryBytes(
       method: Nsid,
       parameters: Vector[(String, String)] = Vector.empty,
@@ -119,6 +136,7 @@ final class XrpcClient private (
     val uri = URI.create(s"${service.toString}/xrpc/${method.value}${encodeParameters(parameters)}")
     send(HttpMethod.Get, uri, accept, None, bearerToken, extraHeaders)
 
+  /** Executes a procedure with caller-selected binary content type. */
   def procedureBytes(
       method: Nsid,
       contentType: String,
@@ -165,6 +183,7 @@ final class XrpcClient private (
       parameters.map { (name, value) => s"${PercentEncoding.query(name)}=${PercentEncoding.query(value)}" }.mkString("?", "&", "")
 
 object XrpcClient:
+  /** Validates and normalizes an origin-level HTTP(S) XRPC service. */
   def create(
       service: URI,
       transport: HttpTransport = JdkHttpTransport.default,

@@ -14,6 +14,7 @@ import learnat.syntax.AtIdentifier
 import learnat.syntax.Did
 import learnat.syntax.Handle
 
+/** Typed failures from syntax policy, network resolution, and DID verification. */
 enum IdentityError:
   case InvalidDocument(message: String)
   case UnsupportedDidMethod(method: String)
@@ -27,6 +28,7 @@ enum IdentityError:
   case MissingPds(did: Did)
   case MissingSigningKey(did: Did)
 
+  /** Stable diagnostic text while preserving retry-relevant typed cases. */
   def description: String = this match
     case InvalidDocument(detail) => s"invalid DID document: $detail"
     case UnsupportedDidMethod(method) => s"unsupported DID method: $method"
@@ -41,12 +43,17 @@ enum IdentityError:
     case MissingPds(did) => s"DID document has no valid atproto PDS service: ${did.value}"
     case MissingSigningKey(did) => s"DID document has no valid atproto signing key: ${did.value}"
 
+/** Bounded HTTP result used by the injectable identity network. */
 final case class IdentityHttpResponse(status: Int, body: Array[Byte])
 
+/** DNS and HTTP effects required by pure identity-resolution policy. */
 trait IdentityNetwork:
+  /** Resolves all TXT values for an exact DNS owner name. */
   def dnsTxt(name: String): Either[IdentityError, Vector[String]]
+  /** Fetches a URI with a caller-selected response limit. */
   def get(uri: URI, maxBytes: Int): Either[IdentityError, IdentityHttpResponse]
 
+/** JDK DNS/HTTP implementation for CLI learning and local integration. */
 final class JdkIdentityNetwork private (client: HttpClient) extends IdentityNetwork:
   override def dnsTxt(name: String): Either[IdentityError, Vector[String]] =
     val environment = Hashtable[String, String]()
@@ -83,6 +90,7 @@ final class JdkIdentityNetwork private (client: HttpClient) extends IdentityNetw
       case error: Exception => Left(IdentityError.Network(s"GET $uri failed", Some(error)))
 
 object JdkIdentityNetwork:
+  /** Creates the default bounded JDK network adapter. */
   def default: JdkIdentityNetwork =
     val client = HttpClient.newBuilder()
       .connectTimeout(Duration.ofSeconds(10))
@@ -90,15 +98,20 @@ object JdkIdentityNetwork:
       .build()
     new JdkIdentityNetwork(client)
 
+/** DID verification method fields relevant to repository signing. */
 final case class VerificationMethod(id: String, controller: String, methodType: String, publicKeyMultibase: String)
+
+/** DID service fields relevant to PDS discovery. */
 final case class DidService(id: String, serviceType: String, endpoint: String)
 
+/** Parsed DID document subset needed for atproto account verification. */
 final case class DidDocument(
     id: Did,
     alsoKnownAs: Vector[String],
     verificationMethods: Vector[VerificationMethod],
     services: Vector[DidService]
 ):
+  /** First syntactically valid, path-free `at://` handle claim. */
   def claimedHandle: Option[Handle] =
     alsoKnownAs.iterator.flatMap { value =>
       if value.startsWith("at://") && !value.drop(5).contains('/') && !value.contains('#') && !value.contains('?') then
@@ -106,6 +119,7 @@ final case class DidDocument(
       else None
     }.nextOption()
 
+  /** Current controlled `#atproto` Multikey string, if present. */
   def atprotoSigningKey: Option[String] =
     verificationMethods.find { method =>
       matchesFragment(method.id, "#atproto") &&
@@ -114,6 +128,7 @@ final case class DidDocument(
       method.publicKeyMultibase.startsWith("z")
     }.map(_.publicKeyMultibase)
 
+  /** Validated origin-level PDS service, with optional local HTTP policy. */
   def pdsEndpoint(allowHttpLocal: Boolean): Option[URI] =
     services.iterator.filter { service =>
       matchesFragment(service.id, "#atproto_pds") && service.serviceType == "AtprotoPersonalDataServer"
@@ -136,6 +151,7 @@ final case class DidDocument(
     catch case _: IllegalArgumentException => None
 
 object DidDocument:
+  /** Decodes a document and binds its top-level ID to the requested DID. */
   def decode(expected: Did, json: Json): Either[IdentityError, DidDocument] =
     for
       idText <- json.field("id").flatMap(_.asString).left.map(error => invalid(error.message))
@@ -188,6 +204,7 @@ object DidDocument:
 
   private def invalid(message: String): IdentityError = IdentityError.InvalidDocument(message)
 
+/** Bidirectionally verified account location and repository key material. */
 final case class ResolvedIdentity(
     did: Did,
     handle: Option[Handle],
@@ -196,6 +213,7 @@ final case class ResolvedIdentity(
     document: DidDocument
 )
 
+/** Network and development policy for identity resolution. */
 final case class IdentityResolverConfig(
     plcDirectory: URI = URI.create("https://plc.directory"),
     allowHttpLocal: Boolean = false,
@@ -203,13 +221,16 @@ final case class IdentityResolverConfig(
     maxDocumentBytes: Int = 1024 * 1024
 )
 
+/** Resolver that separates handle syntax, network policy, DID fetch, and verification. */
 final class IdentityResolver(network: IdentityNetwork, config: IdentityResolverConfig = IdentityResolverConfig()):
   private val disallowedTlds = Vector(".alt", ".arpa", ".example", ".internal", ".invalid", ".local", ".localhost", ".onion")
 
+  /** Resolves either input form to one verified identity snapshot. */
   def resolve(input: AtIdentifier): Either[IdentityError, ResolvedIdentity] = input match
     case AtIdentifier.HandleIdentifier(handle) => resolveFromHandle(handle)
     case AtIdentifier.DidIdentifier(did) => resolveFromDid(did)
 
+  /** Resolves a handle through DNS with HTTPS fallback under TLD policy. */
   def resolveHandle(handle: Handle): Either[IdentityError, Did] =
     Handle.parse(handle.normalized)
       .left.map(error => IdentityError.ResolutionDisallowed(handle.value, error.message))
@@ -223,6 +244,7 @@ final class IdentityResolver(network: IdentityNetwork, config: IdentityResolverC
               case _ => httpsDid(normalized)
       }
 
+  /** Fetches and ID-binds a supported `did:plc` or `did:web` document. */
   def resolveDid(did: Did): Either[IdentityError, DidDocument] =
     did.method match
       case "plc" => fetchDidDocument(did, URI.create(s"${config.plcDirectory.toString.stripSuffix("/")}/${did.value}"))

@@ -2,6 +2,7 @@ package learnat.json
 
 import scala.collection.mutable
 
+/** Lossless JSON syntax tree used at every untrusted JSON boundary. */
 enum Json:
   case Null
   case Bool(value: Boolean)
@@ -10,38 +11,47 @@ enum Json:
   case Arr(value: Vector[Json])
   case Obj(fields: Vector[(String, Json)])
 
+  /** Renders compact, valid JSON without changing numeric meaning. */
   def render: String = Json.render(this)
 
+  /** Reads a required object field while preserving type-versus-absence errors. */
   def field(name: String): Either[Json.AccessError, Json] = this match
     case Json.Obj(fields) =>
       fields.find(_._1 == name).map(_._2).toRight(Json.AccessError(s"missing field: $name"))
     case other => Left(Json.AccessError(s"expected object, found ${other.kind}"))
 
+  /** Reads an optional object field; a non-object remains an error. */
   def optionalField(name: String): Either[Json.AccessError, Option[Json]] = this match
     case Json.Obj(fields) => Right(fields.find(_._1 == name).map(_._2))
     case other => Left(Json.AccessError(s"expected object, found ${other.kind}"))
 
+  /** Requires a string node. */
   def asString: Either[Json.AccessError, String] = this match
     case Json.Str(value) => Right(value)
     case other => Left(Json.AccessError(s"expected string, found ${other.kind}"))
 
+  /** Requires a boolean node. */
   def asBoolean: Either[Json.AccessError, Boolean] = this match
     case Json.Bool(value) => Right(value)
     case other => Left(Json.AccessError(s"expected boolean, found ${other.kind}"))
 
+  /** Requires an integral number that fits in a signed 64-bit value. */
   def asLong: Either[Json.AccessError, Long] = this match
     case Json.Num(value) if value.isWhole && value.isValidLong => Right(value.toLong)
     case Json.Num(_) => Left(Json.AccessError("expected 64-bit integer"))
     case other => Left(Json.AccessError(s"expected number, found ${other.kind}"))
 
+  /** Requires an array node. */
   def asArray: Either[Json.AccessError, Vector[Json]] = this match
     case Json.Arr(value) => Right(value)
     case other => Left(Json.AccessError(s"expected array, found ${other.kind}"))
 
+  /** Requires an object node while preserving its observed field order. */
   def asObject: Either[Json.AccessError, Vector[(String, Json)]] = this match
     case Json.Obj(fields) => Right(fields)
     case other => Left(Json.AccessError(s"expected object, found ${other.kind}"))
 
+  /** Human-readable JSON kind used in typed access failures. */
   def kind: String = this match
     case Json.Null => "null"
     case Json.Bool(_) => "boolean"
@@ -50,17 +60,26 @@ enum Json:
     case Json.Arr(_) => "array"
     case Json.Obj(_) => "object"
 
+/** Strict dependency-free JSON parser and compact renderer. */
 object Json:
+  /** Parser resource limits applied before and during recursion. */
   final case class Limits(maxDepth: Int = 128, maxInputChars: Int = 2 * 1024 * 1024)
+
+  /** Located syntax failure for malformed JSON text. */
   final case class ParseError(message: String, offset: Int, line: Int, column: Int):
     override def toString: String = s"$message at line $line, column $column (offset $offset)"
 
+  /** Typed navigation failure after syntax parsing succeeded. */
   final case class AccessError(message: String):
     override def toString: String = message
 
+  /** Convenience constructor that retains caller field order. */
   def obj(fields: (String, Json)*): Json = Obj(fields.toVector)
+
+  /** Convenience constructor for immutable JSON arrays. */
   def arr(values: Json*): Json = Arr(values.toVector)
 
+  /** Parses exactly one JSON document and rejects duplicate object keys. */
   def parse(input: String, limits: Limits = Limits()): Either[ParseError, Json] =
     if input.length > limits.maxInputChars then
       Left(ParseError(s"input exceeds ${limits.maxInputChars} characters", 0, 1, 1))
@@ -68,6 +87,7 @@ object Json:
       Left(ParseError("maxDepth must be at least 1", 0, 1, 1))
     else Parser(input, limits).parseDocument()
 
+  /** Renders a syntax tree as compact JSON. */
   def render(value: Json): String =
     val out = new java.lang.StringBuilder()
     append(value, out)
@@ -301,4 +321,3 @@ object Json:
       val lastNewline = prefix.lastIndexOf('\n')
       val column = offset - lastNewline
       ParseError(message, offset, line, column)
-

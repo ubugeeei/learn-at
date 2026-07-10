@@ -2,13 +2,19 @@ package learnat.ipld
 
 import java.io.ByteArrayOutputStream
 
+/** One content-verified CID/block pair in a CAR archive. */
 final case class CarBlock(cid: Cid, bytes: ByteString)
+
+/** Parsed CAR roots and block sections, before graph-specific validation. */
 final case class CarFile(roots: Vector[Cid], blocks: Vector[CarBlock])
 
+/** CAR framing or content-address verification failure. */
 final case class CarError(message: String, offset: Option[Int] = None):
   override def toString: String = offset.fold(message)(value => s"$message at byte $value")
 
+/** In-memory CAR v1 reader/writer with canonical framing and hash verification. */
 object Car:
+  /** Independent resource bounds for the archive, header, blocks, and count. */
   final case class Limits(
       maxFileBytes: Int = 64 * 1024 * 1024,
       maxHeaderBytes: Int = 1024 * 1024,
@@ -16,6 +22,7 @@ object Car:
       maxBlocks: Int = 1_000_000
   )
 
+  /** Serializes a CAR v1 file; callers choose semantically useful block order. */
   def write(file: CarFile): Either[CarError, Array[Byte]] =
     val header = Ipld.obj(
       "roots" -> Ipld.List(file.roots.map(Ipld.Link.apply)),
@@ -35,6 +42,7 @@ object Car:
       out.toByteArray
     }
 
+  /** Parses CAR v1 and verifies every block against its declared CID. */
   def read(bytes: Array[Byte], limits: Limits = Limits()): Either[CarError, CarFile] =
     if bytes.length > limits.maxFileBytes then Left(CarError(s"CAR exceeds ${limits.maxFileBytes} bytes"))
     else

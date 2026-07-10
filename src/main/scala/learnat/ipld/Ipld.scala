@@ -7,9 +7,13 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Arrays
 
+/** Immutable byte value that defensively copies at construction and exposure. */
 final class ByteString private (private val data: Array[Byte]):
+  /** Number of contained bytes. */
   def size: Int = data.length
+  /** Reads one byte without exposing the backing array. */
   def apply(index: Int): Byte = data(index)
+  /** Returns a defensive copy. */
   def toArray: Array[Byte] = data.clone()
 
   override def equals(other: Any): Boolean = other match
@@ -20,9 +24,11 @@ final class ByteString private (private val data: Array[Byte]):
   override def toString: String = data.map(byte => f"${byte & 0xff}%02x").mkString
 
 object ByteString:
+  /** Copies mutable input into an immutable value. */
   def apply(bytes: Array[Byte]): ByteString = new ByteString(bytes.clone())
   val empty: ByteString = ByteString(Array.emptyByteArray)
 
+/** Restricted atproto/IPLD data model used by DAG-CBOR and DAG-JSON. */
 enum Ipld:
   case Null
   case Bool(value: Boolean)
@@ -34,6 +40,7 @@ enum Ipld:
   case Link(value: Cid)
 
 object Ipld:
+  /** Constructs a map in canonical DAG-CBOR key order. */
   def obj(fields: (String, Ipld)*): Ipld =
     val sorted = fields.toVector.sortWith { (left, right) =>
       val leftBytes = left._1.getBytes(StandardCharsets.UTF_8)
@@ -42,11 +49,14 @@ object Ipld:
       if length != 0 then length < 0 else Arrays.compareUnsigned(leftBytes, rightBytes) < 0
     }
     Map(sorted)
+  /** Constructs an immutable IPLD list. */
   def list(values: Ipld*): Ipld = List(values.toVector)
 
+/** Codec, CID, or multibase failure with an optional byte offset. */
 final case class IpldError(message: String, offset: Option[Int] = None):
   override def toString: String = offset.fold(message)(value => s"$message at byte $value")
 
+/** CIDv1 with an atproto-supported codec and SHA-256 multihash. */
 final class Cid private (val codec: Long, val bytes: ByteString):
   override def toString: String = s"b${Base32.encode(bytes.toArray)}"
   override def equals(other: Any): Boolean = other match
@@ -54,6 +64,7 @@ final class Cid private (val codec: Long, val bytes: ByteString):
     case _ => false
   override def hashCode(): Int = bytes.hashCode()
 
+  /** Rehashes content and constant-time compares the multihash digest. */
   def verifies(content: Array[Byte]): Boolean =
     val expected = bytes.toArray.takeRight(32)
     val actual = MessageDigest.getInstance("SHA-256").digest(content)
@@ -65,7 +76,9 @@ object Cid:
   private val Sha256Code = 0x12L
   private val Sha256Length = 32L
 
+  /** Creates a DAG-CBOR CIDv1 for exact canonical bytes. */
   def forDagCbor(content: Array[Byte]): Cid = create(DagCborCodec, content)
+  /** Creates a raw-content CIDv1. */
   def forRaw(content: Array[Byte]): Cid = create(RawCodec, content)
 
   def create(codec: Long, content: Array[Byte]): Cid =
@@ -73,15 +86,18 @@ object Cid:
     val bytes = Varint.encode(1) ++ Varint.encode(codec) ++ Varint.encode(Sha256Code) ++ Varint.encode(Sha256Length) ++ digest
     new Cid(codec, ByteString(bytes))
 
+  /** Parses lower-case base32 multibase CID text. */
   def parse(value: String): Either[IpldError, Cid] =
     if !value.startsWith("b") then Left(IpldError("CID must use lower-case base32 multibase"))
     else Base32.decode(value.drop(1)).flatMap(parseBytes)
 
+  /** Parses exactly one binary CID. */
   def parseBytes(bytes: Array[Byte]): Either[IpldError, Cid] =
     readPrefix(bytes, 0).flatMap { (cid, next) =>
       if next == bytes.length then Right(cid) else Left(IpldError("trailing bytes after CID", Some(next)))
     }
 
+  /** Parses a CID prefix and returns the first unconsumed byte offset. */
   def readPrefix(bytes: Array[Byte], start: Int): Either[IpldError, (Cid, Int)] =
     for
       versionResult <- Varint.decode(bytes, start)
@@ -101,7 +117,9 @@ object Cid:
       cidBytes = bytes.slice(start, end)
     yield new Cid(codec, ByteString(cidBytes)) -> end
 
+/** Minimal unsigned varint codec with overflow and canonical-form checks. */
 object Varint:
+  /** Encodes a non-negative long in minimal varint form. */
   def encode(value: Long): Array[Byte] =
     require(value >= 0, "varint only supports non-negative longs")
     val out = ByteArrayOutputStream()
@@ -112,6 +130,7 @@ object Varint:
     out.write(remaining.toInt)
     out.toByteArray
 
+  /** Decodes one minimal varint beginning at `start`. */
   def decode(bytes: Array[Byte], start: Int): Either[IpldError, (Long, Int)] =
     var value = 0L
     var shift = 0
@@ -127,9 +146,11 @@ object Varint:
     else if index - start > 1 && (bytes(index - 1) & 0x7f) == 0 then Left(IpldError("non-minimal varint", Some(start)))
     else Right(value -> index)
 
+/** Lower-case unpadded base32 codec used by CID multibase text. */
 object Base32:
   private val Alphabet = "abcdefghijklmnopqrstuvwxyz234567"
 
+  /** Encodes bytes without a multibase prefix. */
   def encode(bytes: Array[Byte]): String =
     val out = new java.lang.StringBuilder()
     var buffer = 0
@@ -145,6 +166,7 @@ object Base32:
     if bits > 0 then out.append(Alphabet.charAt((buffer << (5 - bits)) & 31))
     out.toString
 
+  /** Decodes strict lower-case unpadded base32. */
   def decode(value: String): Either[IpldError, Array[Byte]] =
     if value.isEmpty then Left(IpldError("empty base32 value"))
     else
@@ -165,13 +187,17 @@ object Base32:
       if bits > 0 && buffer != 0 then Left(IpldError("non-zero base32 padding bits"))
       else Right(out.toByteArray)
 
+/** Canonical DAG-CBOR codec for the restricted atproto IPLD data model. */
 object DagCbor:
+  /** Decoder depth and input-byte boundaries. */
   final case class Limits(maxDepth: Int = 128, maxBytes: Int = 4 * 1024 * 1024)
 
+  /** Encodes one IPLD value in deterministic DAG-CBOR form. */
   def encode(value: Ipld): Either[IpldError, Array[Byte]] =
     val out = ByteArrayOutputStream()
     encodeValue(value, out).map(_ => out.toByteArray)
 
+  /** Decodes exactly one canonical value and rejects trailing bytes. */
   def decode(bytes: Array[Byte], limits: Limits = Limits()): Either[IpldError, Ipld] =
     if bytes.length > limits.maxBytes then Left(IpldError(s"DAG-CBOR input exceeds ${limits.maxBytes} bytes"))
     else

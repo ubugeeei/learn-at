@@ -28,6 +28,8 @@ $ LEARN_AT_PASSWORD=local-secret nix develop --command sbt \
     'runMain learnat.Main client post http://localhost:2583 alice.test com.example.note "hello"'
 ```
 
+The local PDS persists its development key, records, and last revision under `data/local-pds` by default. Use a fixed port across restarts because it is part of the localhost `did:web` identifier.
+
 入口は [学習ロードマップ](docs/00-learning-path.md) です。環境の詳細は [Nix で学習環境を作る](docs/02-environment.md)、用語に詰まったら [用語集](docs/glossary.md) を参照してください。
 
 ## 到達点

@@ -26,6 +26,8 @@ DID: did:web:localhost%3A2583
 
 Use a real password in the environment. The built-in fallback exists only to keep the learning command discoverable and must not be exposed.
 
+By default, `LocalPdsMain` persists state under `data/local-pds`. Override it with `LEARN_AT_DATA`. Keep the same port when restarting: the port is part of the localhost `did:web` identifier, and the store fails closed if the bound DID changes.
+
 ## Identity endpoints
 
 The PDS publishes:
@@ -102,6 +104,21 @@ The HTTP adapter enforces:
 
 Repository state changes only after an immutable atomic write returns a signed commit.
 
+## Local persistence
+
+The optional state store persists:
+
+- the DID that owns the state;
+- PKCS#8 P-256 private key and public Multikey;
+- the last repository revision TID;
+- typed record collection/key/value triples.
+
+Writes create a complete temporary JSON file, apply owner read/write permissions on POSIX systems, force the file to storage, and atomically rename it where the filesystem supports atomic moves. In-memory state is updated only after persistence succeeds.
+
+On restart, the server requires the stored DID to match the bound `did:web` origin, restores the same signing key and records, and seeds the new commit revision from the stored TID so revisions remain monotonic across clock stalls or rollback.
+
+The JSON format is intentionally inspectable for the hands-on. Its PKCS#8 private key is plaintext and protected only by filesystem permissions; production key custody must replace it.
+
 ## What the E2E test proves
 
 A passing test proves that, in one process on loopback:
@@ -124,7 +141,7 @@ It does not prove internet-safe deployment.
 
 Do not expose this server publicly without replacing or adding:
 
-- durable transactional storage and stable key persistence;
+- multi-account transactional storage and encrypted/HSM-backed key custody;
 - HTTPS termination with trusted proxy/header policy;
 - OAuth discovery, PAR, PKCE, DPoP, nonce handling, and permissions;
 - account creation/recovery/migration and PLC rotation-key custody;
@@ -141,7 +158,7 @@ These are explicit later steps, not hidden behind the phrase "minimal PDS."
 
 1. Send a mutation with no token, an access token, and a refresh token; compare errors.
 2. Lower `maxJsonBodyBytes` and verify a large record is rejected before JSON parsing.
-3. Kill and restart the current server and observe why volatile keys/records make its DID state inconsistent. This motivates persistence.
+3. Restart on a different port and inspect the stored-DID mismatch. Then restart on the original port and confirm the key, records, and increasing revision survive.
 4. Add conditional write CIDs (`swapCommit`/`swapRecord`) before concurrent clients.
 5. Add a second account and identify every single-account assumption that must move into storage keys.
 
@@ -151,4 +168,3 @@ These are explicit later steps, not hidden behind the phrase "minimal PDS."
 - [HTTP API (XRPC)](https://atproto.com/specs/xrpc)
 - [Repository](https://atproto.com/specs/repository)
 - [Sync](https://atproto.com/specs/sync)
-

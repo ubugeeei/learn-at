@@ -8,6 +8,7 @@ object AllTests:
     InteropSyntaxTests.run()
     XrpcTests.run()
     IdentityTests.run()
+    LexiconTests.run()
     IpldTests.run()
     DagJsonTests.run()
     CarTests.run()

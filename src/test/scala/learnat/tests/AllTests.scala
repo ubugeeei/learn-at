@@ -13,4 +13,5 @@ object AllTests:
     MstTests.run()
     CryptoTests.run()
     InteropCryptoTests.run()
+    RepositoryTests.run()
     println(s"${TestKit.count} tests passed")

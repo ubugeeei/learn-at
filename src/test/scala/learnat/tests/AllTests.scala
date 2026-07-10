@@ -9,6 +9,7 @@ object AllTests:
     XrpcTests.run()
     IdentityTests.run()
     IpldTests.run()
+    DagJsonTests.run()
     CarTests.run()
     MstTests.run()
     CryptoTests.run()

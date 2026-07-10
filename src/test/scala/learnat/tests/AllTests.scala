@@ -7,4 +7,5 @@ object AllTests:
     SyntaxTests.run()
     InteropSyntaxTests.run()
     XrpcTests.run()
+    IdentityTests.run()
     println(s"${TestKit.count} tests passed")

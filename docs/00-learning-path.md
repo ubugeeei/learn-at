@@ -54,9 +54,9 @@
 
 ### Phase 3: repository のバイト列を理解する
 
-- 09: deterministic DAG-CBOR
-- 10: multihash / CID / multibase
-- 11: CAR v1
+- [09: deterministic DAG-CBOR](09-dag-cbor.md)
+- [10: multihash / CID / multibase](10-cid.md)
+- [11: CAR v1](11-car.md)
 - 12: Merkle Search Tree
 
 ここが protocol の中心です。便利な CBOR/IPLD ライブラリで隠さず、限定した正しい codec を作ります。

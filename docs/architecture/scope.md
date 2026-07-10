@@ -32,7 +32,7 @@ runtime / test dependency は原則ゼロです。
 - P-256 repository signing key
 - create / put / delete / get / list record
 - repository CAR export/import
-- event sequence と resumable stream
+- full-CAR polling mirror (implemented); event sequence and resumable server stream (remaining)
 - legacy session と app password
 - local HTTPS reverse proxy の背後で動作可能
 
@@ -43,7 +43,7 @@ runtime / test dependency は原則ゼロです。
 - legacy session を使う明示的な開発モード
 - OAuth discovery と authorization code flow
 - CAR と repository signature verification
-- reconnect、cursor、full resync
+- full resync (implemented); reconnect and durable cursor recovery (remaining)
 
 ### この参照実装だけでは production-ready と呼ばない条件
 
@@ -70,4 +70,3 @@ runtime / test dependency は原則ゼロです。
 - `e2e`: client -> PDS -> export -> verifier
 
 教材を更新するときは、参照した公式 repository commit と確認日を README で更新します。
-

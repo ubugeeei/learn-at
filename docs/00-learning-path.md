@@ -76,7 +76,7 @@
 
 ### Phase 6: データを転送する
 
-- 16: CAR export/import と event stream
+- [16: CAR mirror and event stream](16-sync.md)
 
 初回同期は repository export、差分追従は firehose、欠落時は再同期という状態機械を作ります。
 

@@ -40,7 +40,7 @@
 ### Phase 1: 普通の HTTP として触る
 
 - [04: 依存ゼロ JSON codec](04-json.md)
-- 05: DID / handle / NSID / AT URI / record key / TID
+- [05: DID / handle / NSID / AT URI / record key / TID](05-identifiers.md)
 - 06: XRPC query と procedure
 
 最初の成果物は公開 endpoint を呼べる CLI です。認証も CBOR もまだ要りません。

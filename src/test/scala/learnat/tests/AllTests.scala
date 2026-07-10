@@ -9,4 +9,5 @@ object AllTests:
     XrpcTests.run()
     IdentityTests.run()
     IpldTests.run()
+    CarTests.run()
     println(s"${TestKit.count} tests passed")

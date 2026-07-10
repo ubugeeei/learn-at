@@ -11,4 +11,6 @@ object AllTests:
     IpldTests.run()
     CarTests.run()
     MstTests.run()
+    CryptoTests.run()
+    InteropCryptoTests.run()
     println(s"${TestKit.count} tests passed")

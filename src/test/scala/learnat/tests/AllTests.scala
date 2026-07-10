@@ -6,4 +6,5 @@ object AllTests:
     JsonTests.run()
     SyntaxTests.run()
     InteropSyntaxTests.run()
+    XrpcTests.run()
     println(s"${TestKit.count} tests passed")

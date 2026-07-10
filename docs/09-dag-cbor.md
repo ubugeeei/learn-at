@@ -1,23 +1,29 @@
-# 09: AT Protocol data model と deterministic DAG-CBOR
+# 09: AT Protocol data model and deterministic DAG-CBOR
 
-## この章のゴール
+## Goal
 
-repository record を一意な byte 列へ変換します。なぜ普通の JSON text を hash せず、制約された data model と canonical encoding が必要なのかを説明できるようにします。
+Turn a repository record into one unique byte sequence. Explain why a
+content-addressed repository needs a constrained data model and canonical
+encoding instead of hashing ordinary JSON text.
 
-実装は `src/main/scala/learnat/ipld/Ipld.scala` の `Ipld` と `DagCbor` です。
+Implementation: `Ipld` and `DagCbor` in
+`src/main/scala/learnat/ipld/Ipld.scala`
 
-## content address の前提
+## Requirement for content addressing
 
-次の二つは同じ JSON value に見えます。
+These are the same JSON value:
 
 ```json
 {"a":1,"b":2}
 {"b":2, "a":1}
 ```
 
-しかし UTF-8 bytes は違うため、そのまま SHA-256 を計算すると別 hash になります。content-addressed repository では、同じ logical value が必ず同じ bytes になる rule が必要です。
+Their UTF-8 bytes differ, so hashing the source text yields different results.
+A content-addressed repository needs a rule under which the same logical value
+always produces the same bytes.
 
-DAG-CBOR は IPLD data model を canonical CBOR で表します。AT Protocol はさらに data model を限定します。
+DAG-CBOR represents the IPLD data model in canonical CBOR. AT Protocol further
+constrains that model.
 
 ## Scala data model
 
@@ -33,15 +39,19 @@ enum Ipld:
   case Link(value: Cid)
 ```
 
-JSON にない `Bytes` と `Link` があります。一方、floating-point number は AT Protocol data model では使いません。binary floating point の canonicalization や NaN 表現の曖昧さを repository へ持ち込まないためです。
+`Bytes` and `Link` have no direct ordinary-JSON primitive. Floating point is
+excluded, avoiding numeric canonicalization and NaN ambiguity in repository
+data.
 
-`ByteString` は input array を copy します。mutable な `Array[Byte]` をそのまま保存すると、CID 計算後に caller が内容を変更できます。
+`ByteString` defensively copies its input. Retaining a mutable `Array[Byte]`
+would let a caller alter content after its CID was calculated.
 
-## CBOR の major type
+## CBOR major types
 
-CBOR item の先頭 byte は上位 3 bit が major type、下位 5 bit が短い値または追加 length の種類です。
+The upper three bits of the initial byte identify a CBOR major type. The lower
+five contain a small value or select an additional length:
 
-| major | この実装での意味 |
+| Major | Accepted meaning |
 | --- | --- |
 | 0 | non-negative integer |
 | 1 | negative integer `-1 - n` |
@@ -49,29 +59,32 @@ CBOR item の先頭 byte は上位 3 bit が major type、下位 5 bit が短い
 | 3 | UTF-8 text |
 | 4 | list |
 | 5 | string-keyed map |
-| 6 | CID tag 42 だけ |
-| 7 | false / true / null だけ |
+| 6 | CID tag 42 only |
+| 7 | false, true, or null only |
 
-たとえば `1` は `01`、`-1` は `20`、`true` は `f5` です。
+For example, `1` is `01`, `-1` is `20`, and `true` is `f5`.
 
-## canonical rule
+## Canonical rules
 
-### 最短の integer / length
+### Shortest integers and lengths
 
-値 1 は一 byte `01` で表せます。`18 01` のように追加 byte を使う表現も generic CBOR decoder では同じ値ですが、canonical では拒否します。
+The value 1 fits in `01`. Generic CBOR may also decode `18 01`, but canonical
+DAG-CBOR rejects that longer representation.
 
-### definite length
+### Definite length
 
-終端 marker まで読む indefinite-length list/string は拒否し、最初に length を書きます。異なる chunk 分割で bytes が変わるのを防ぎます。
+Strings and containers declare length up front. Indefinite-length chunks are
+rejected because different chunking would produce different bytes.
 
-### map key
+### Map keys
 
-key は UTF-8 string だけです。UTF-8 byte length の短い順、同じ length なら unsigned byte order で並べます。
+Keys are UTF-8 strings ordered first by UTF-8 byte length and then by unsigned
+byte order:
 
 ```text
-"a"  -> length 1
-"b"  -> length 1, a の後
-"aa" -> length 2
+"a"  -> one byte
+"b"  -> one byte, after a
+"aa" -> two bytes
 ```
 
 ```scala
@@ -82,46 +95,52 @@ Ipld.obj(
 )
 ```
 
-canonical hex:
+Canonical hexadecimal form:
 
 ```text
 a3 61 61 00 61 62 01 62 61 61 02
 ```
 
-duplicate key と順序違反は decoder でも拒否します。
+The decoder rejects duplicate or incorrectly ordered keys.
 
 ### UTF-8
 
-JDK decoder を malformed/unmappable input の `REPORT` mode にします。replacement character へ黙って置換すると、受信 bytes と再 encode bytes が変わります。
+The JDK decoder uses `REPORT` for malformed and unmappable input. Silent
+replacement would make received bytes differ from re-encoded bytes.
 
-### CID link
+### CID links
 
-IPLD link は CBOR tag 42、その中に先頭 `0x00` と CID bytes を持つ byte string です。CID text を普通の string として encode しません。
+An IPLD link is CBOR tag 42 containing a byte string whose first byte is `0x00`
+followed by binary CID bytes. It is not encoded as CID text.
 
-## encoder と decoder の責務
+## Encoder and decoder responsibilities
 
-encoder はどんな field 順で入力されても canonical 順にします。decoder は generic CBOR を寛容に読むのではなく、canonical 違反を拒否します。
+The encoder canonicalizes any input field order. The decoder is deliberately
+strict and rejects non-canonical generic CBOR:
 
 ```scala
 val bytes: Either[IpldError, Array[Byte]] = DagCbor.encode(value)
 val value: Either[IpldError, Ipld] = DagCbor.decode(bytes)
 ```
 
-decoder は trailing bytes、depth、input size も確認します。network body limit の代わりではなく、codec 自身の resource boundary です。
+It also rejects trailing bytes and enforces depth/input limits. These are codec
+resource boundaries in addition to, not instead of, HTTP body limits.
 
-## 実行と演習
+`decodeSequence` is the one explicit exception to “one value only”; chapter 16
+uses it for event-stream header/body framing.
+
+## Exercises
 
 ```console
 $ nix develop --command sbt verify
 ```
 
-1. `{ "b": ..., "a": ... }` を encode して key 順が変わることを見る。
-2. `01` を `18 01` に変えて decoder error を確認する。
-3. invalid UTF-8 の text item を作り、replacement されないことを test する。
-4. `ByteString` の defensive copy を外し、hash 前後に source array を変える危険を再現する。
+1. Encode `{ "b": ..., "a": ... }` and observe canonical reordering.
+2. Replace `01` with `18 01` and inspect the decoder error.
+3. Construct invalid UTF-8 text and prove it is not replaced.
+4. Remove the `ByteString` copy and mutate the source array after hashing.
 
-## 仕様
+## Specifications
 
 - [AT Protocol data model](https://atproto.com/specs/data-model)
 - [IPLD DAG-CBOR](https://ipld.io/specs/codecs/dag-cbor/spec/)
-

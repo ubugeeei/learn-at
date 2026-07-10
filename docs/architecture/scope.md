@@ -1,72 +1,81 @@
-# 実装スコープと完成条件
+# Implementation scope and completion criteria
 
-## 方針
+## Policy
 
-参照実装は学習可能性、相互運用性、安全な境界の順に最適化します。短いこと自体は目的ではありません。protocol の本質ではない plumbing は JDK を使い、本質的な wire format は実装を見える状態にします。
+Optimize first for learnability, then interoperability and explicit security
+boundaries. Brevity is not itself a goal. Use the JDK for plumbing outside the
+protocol core; keep central wire formats visible in this repository.
 
-## 依存ポリシー
+## Dependency policy
 
-runtime / test dependency は原則ゼロです。
+Runtime and test dependencies are zero by default.
 
-| 領域 | 選択 | 理由 |
+| Area | Choice | Reason |
 | --- | --- | --- |
-| HTTP client | `java.net.http.HttpClient` | HTTP stack の再実装は学習対象外 |
-| HTTP server | JDK `HttpServer` | routing と XRPC の関係を隠さない |
-| JSON | 自作 | Lexicon value と error handling を理解する |
-| DNS | JNDI DNS provider | wire-level DNS client は identity の本筋ではない |
-| crypto primitives | JCA | primitive の自作は危険。署名形式変換は実装する |
-| DAG-CBOR / CID / CAR | 自作 | repository interoperability の中心 |
-| database | file-backed block/state store | 永続化境界を観察できるようにする |
-| test | 小さな自作 runner | production code に test framework を要求しない |
+| HTTP client | `java.net.http.HttpClient` | reimplementing HTTP is out of scope |
+| HTTP server | JDK `HttpServer` | keep routing/XRPC visible |
+| JSON | custom | expose Lexicon values and error handling |
+| DNS | JNDI DNS provider | wire-level DNS is not the identity lesson |
+| cryptographic primitives | JCA | custom primitives are unsafe |
+| DAG-CBOR, CID, CAR | custom | central to repository interoperability |
+| database | file-backed state | make persistence boundaries observable |
+| tests | small custom runner | no framework dependency in production code |
 
-## protocol core と application の境界
+## Protocol core versus application
 
-`com.atproto.*` の identity、server、repo、sync を core として扱います。`app.bsky.*` は client 演習で使用しますが、timeline algorithm や moderation UI を PDS の責務には入れません。
+Treat `com.atproto.*` identity, server, repository, and sync behavior as core.
+Use `app.bsky.*` in client exercises without making timeline algorithms or
+moderation UI a PDS responsibility.
 
-## 段階別の完成条件
+## Milestone criteria
 
-### 教材 PDS
+### Learning PDS
 
-- 単一 process、少数 account
-- file-backed state と content-addressed block store
-- P-256 repository signing key
-- create / put / delete / get / list record
-- repository CAR export/import
-- full-CAR polling mirror (implemented); event sequence and resumable server stream (remaining)
-- legacy session と app password
-- local HTTPS reverse proxy の背後で動作可能
+- single process and account;
+- file-backed records, signing key, and revision;
+- P-256 repository signing;
+- create, put, delete, get, and list records;
+- complete repository CAR export;
+- full-CAR polling mirror implemented;
+- legacy session implemented;
+- resumable server firehose, blobs, OAuth server, and multi-account storage
+  remain explicit future slices.
 
-### interoperability client
+### Interoperability client
 
-- handle / DID resolution と双方向検証
-- public XRPC query
-- legacy session を使う明示的な開発モード
-- OAuth discovery と authorization code flow
-- CAR と repository signature verification
-- full resync (implemented); reconnect and durable cursor recovery (remaining)
+- bidirectional handle/DID resolution;
+- public XRPC queries and binary responses;
+- explicit legacy-session development mode;
+- Lexicon data parsing and validation;
+- CAR and repository-signature verification;
+- full resynchronization and event-frame/WebSocket consumer;
+- OAuth primitives, full redirect flow, durable cursor recovery, and automatic
+  reconnect tracked separately as they are implemented.
 
-### この参照実装だけでは production-ready と呼ばない条件
+### Why this reference alone is not production-ready
 
-以下は protocol の理解を越えて運用組織・policy・継続的 security work が必要です。
+These require an operating organization, policy, and continuous security work
+beyond protocol comprehension:
 
-- internet-facing OAuth authorization UI の hardening
-- distributed database、multi-process transaction、large blob storage
-- email verification、account recovery、PLC rotation key custody
-- abuse prevention、rate limit、spam detection、moderation operations
-- Relay/AppView の internet-scale indexing
-- SLO、on-call、disaster recovery、privacy/legal compliance
+- hardened internet-facing OAuth authorization UI;
+- distributed storage, multi-process transactions, and large blob storage;
+- email verification, recovery, migration, and PLC rotation-key custody;
+- abuse prevention, rate limits, spam detection, and moderation operations;
+- internet-scale Relay/AppView indexing;
+- SLOs, on-call, disaster recovery, privacy, and legal compliance.
 
-教材の endpoint が応答することを、これらが満たされた証拠にはしません。
+A local endpoint returning 200 is not evidence that these conditions are met.
 
-## 仕様追従
+## Specification tracking
 
-仕様ごとのテストを分けます。
+Tests are grouped by contract:
 
-- `syntax`: 公式 interop fixtures の valid / invalid case
-- `codec`: canonical bytes と round trip
-- `crypto`: 公式 signature fixtures
-- `repo`: insertion-order independence、proof、tamper rejection
-- `xrpc`: Lexicon request/response examples
-- `e2e`: client -> PDS -> export -> verifier
+- `syntax`: official valid/invalid interoperability fixtures;
+- `codec`: canonical bytes, limits, and round trips;
+- `crypto`: official signature fixtures;
+- `repo`: insertion independence, reachability, and tamper rejection;
+- `xrpc`: exact request/response wire behavior;
+- `e2e`: client to PDS to CAR to independent verifier.
 
-教材を更新するときは、参照した公式 repository commit と確認日を README で更新します。
+When updating the guide, record the official implementation commit and review
+date in the README.

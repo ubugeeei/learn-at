@@ -1,23 +1,28 @@
-# 04: 依存ゼロの JSON codec
+# 04: Build a dependency-free JSON codec
 
-## この章のゴール
+## Goal
 
-JSON text を検証済みの tree に変換し、tree を JSON text に戻します。同時に、parser が protocol の最初の security boundary であることを理解します。
+Parse JSON text into a validated tree and render that tree back to text. Treat
+the parser as the protocol's first security boundary.
 
-実装は `src/main/scala/learnat/json/Json.scala`、test は `src/test/scala/learnat/tests/JsonTests.scala` にあります。
+Implementation: `src/main/scala/learnat/json/Json.scala`
 
-## なぜ最初に JSON なのか
+Tests: `src/test/scala/learnat/tests/JsonTests.scala`
 
-AT Protocol では次が JSON です。
+## Why JSON comes first
 
-- XRPC の多くの input / output / error
-- DID document
-- Lexicon schema
-- OAuth server metadata と client metadata
+AT Protocol uses JSON for:
 
-後で扱う repository block は DAG-CBOR ですが、data model の多くは JSON と対応します。JSON の `null / boolean / number / string / array / object` を明示的な型にすることが、以後の decoder の土台です。
+- most XRPC inputs, outputs, and errors;
+- DID documents;
+- Lexicon schemas;
+- OAuth authorization-server and client metadata.
 
-## data model
+Repository blocks later use DAG-CBOR, but much of the data model corresponds to
+JSON. Explicit `null`, boolean, number, string, array, and object types are the
+foundation of every later decoder.
+
+## Data model
 
 ```scala
 enum Json:
@@ -29,23 +34,29 @@ enum Json:
   case Obj(fields: Vector[(String, Json)])
 ```
 
-### 数値を Double にしない
+### Do not parse numbers as Double
 
-`Double` は binary floating point なので、多くの十進小数や大きな整数を正確に表せません。JSON parser は syntax を失わず `BigDecimal` にします。Lexicon decoder が integer range を確認するときは `asLong` を使います。
+`Double` is binary floating point and cannot exactly represent many decimal
+fractions or large integers. The parser retains JSON number meaning in a
+`BigDecimal`. A Lexicon integer decoder later uses `asLong` to enforce its range.
 
-### object を Map にしない
+### Do not immediately collapse objects into Map
 
-JSON object の key 順は意味を持ちませんが、入力を観察しやすくするため `Vector` で保持します。parser は同じ key が二回現れたら拒否します。
+JSON object order is semantically irrelevant, but a `Vector` preserves the
+observed input. The parser rejects a repeated key:
 
 ```json
 {"did":"trusted","did":"attacker-controlled"}
 ```
 
-重複 key を許すと、署名検証側は最初、business logic 側は最後を採用する、といった parser differential が起きます。一般 JSON の全実装が重複を禁止するわけではありませんが、この実装は untrusted protocol input に対する安全側の policy として拒否します。
+Allowing duplicates can create parser differentials: signature verification
+might choose the first value while business logic chooses the last. JSON in
+general does not universally forbid duplicates, but this implementation rejects
+them as a safe policy for untrusted protocol input.
 
-## recursive descent parser
+## Recursive-descent parser
 
-parser は現在位置 `offset` を一つ持ち、先頭文字で処理を分けます。
+The parser owns one `offset` and dispatches on the next character:
 
 ```text
 n -> null
@@ -57,21 +68,26 @@ f -> false
 - or digit -> number
 ```
 
-array と object は内部の value を再帰的に parse します。document の parse 後は whitespace 以外が残っていないことを確認します。これがないと `true malicious-data` の先頭だけを成功として扱ってしまいます。
+Arrays and objects recursively parse contained values. After one document, only
+whitespace may remain. Without this final check, `true malicious-data` could be
+accepted by reading only its prefix.
 
-## string と Unicode
+## Strings and Unicode
 
-JSON escape は `\" \\ \/ \b \f \n \r \t \uXXXX` です。Unicode code point が UTF-16 の二つの code unit で表される場合、high surrogate と low surrogate の組を検証します。
+JSON escapes are `\" \\ \/ \b \f \n \r \t \uXXXX`. A Unicode code point may
+use two UTF-16 code units, so the parser validates high/low surrogate pairs:
 
 ```json
 "Scala \uD83D\uDE80"
 ```
 
-不完全な組、単独の low surrogate、不正な hex digit は error です。error は offset、line、column を保持します。
+An incomplete pair, isolated low surrogate, or invalid hexadecimal digit is an
+error. Parse errors retain offset, line, and column.
 
-## resource limit
+## Resource limits
 
-小さい入力でも、極端に深い array は call stack を消費します。巨大な input は memory を消費します。
+A small but deeply nested array can exhaust the call stack; a large document
+consumes memory:
 
 ```scala
 Json.parse(input, Json.Limits(
@@ -80,67 +96,75 @@ Json.parse(input, Json.Limits(
 ))
 ```
 
-HTTP layer は endpoint ごとの body limit も持つべきです。parser limit は最後の防御であり、server 全体の rate limit の代わりではありません。
+The HTTP layer should also enforce endpoint-specific body limits. Parser limits
+are a last line of defense, not a server-wide rate limiter.
 
-## unsafe cast を外へ漏らさない
+## Keep unsafe casts out of callers
 
-field access も `Either` です。
+Field access also returns `Either`:
 
 ```scala
 val did: Either[Json.AccessError, String] =
   document.field("did").flatMap(_.asString)
 ```
 
-field がない、object ではない、string ではない、のいずれも明示的な `Left` になります。`asInstanceOf` や `null` は不要です。
+A missing field, non-object parent, or non-string value is an explicit `Left`.
+No `asInstanceOf` or `null` is necessary.
 
-optional field は別 method にします。
+Optional fields have a separate operation:
 
 ```scala
 document.optionalField("cursor") // Either[AccessError, Option[Json]]
 ```
 
-「object ではない」と「field がない」を同じ `None` にしない点が重要です。
+This preserves the difference between “the parent was not an object” and “the
+object does not contain this field.”
 
-## 実行して観察する
+## Run and observe
 
 ```console
 $ nix develop --command sbt verify
 ```
 
-JSON section では正常な六種類の value に加えて、次を test しています。
+The JSON section tests all six value kinds plus:
 
-- surrogate pair の round trip
-- duplicate key
-- leading zero、不完全な fraction / exponent
-- trailing input
-- nesting limit
-- typed field access
+- Unicode surrogate-pair round trips;
+- duplicate keys;
+- leading zeroes and incomplete fractions/exponents;
+- trailing input;
+- nesting limits;
+- typed field access.
 
-## 壊して確かめる
+## Break it deliberately
 
-### 演習 1: trailing input check
+### Exercise 1: trailing input
 
-`parseDocument` の `atEnd` check を一時的に外し、`true false` の test がどう変化するか確認してください。確認後は必ず元に戻します。
+Temporarily remove the `atEnd` check from `parseDocument` and observe how the
+`true false` test changes. Restore it afterward.
 
-### 演習 2: duplicate key policy
+### Exercise 2: duplicate-key policy
 
-`keys` set による check を外し、二つの `did` が tree に残ることを観察します。その tree を `field("did")` で読むとどちらが返るか、別の Map へ変換するとどうなるかを説明してください。
+Remove the `keys` set check and observe both `did` values in the tree. Explain
+which value `field("did")` returns and what happens after converting to a Map.
 
-### 演習 3: depth
+### Exercise 3: depth
 
-`maxDepth = 2` で `[[]]` と `[[[]]]` を parse し、depth の数え方を図にしてください。
+With `maxDepth = 2`, parse `[[]]` and `[[[]]]`. Draw exactly how the parser
+counts each nesting level.
 
-## production library との差
+## Difference from a production JSON library
 
-自作 codec の目的は data model と boundary の理解です。一般用途の production system では、十分に fuzzing され、streaming、byte input、performance tuning を持つ library を選ぶ価値があります。
+The custom codec exists to expose the data model and trust boundary. General
+production systems benefit from a heavily fuzzed library with streaming byte
+input and performance work.
 
-一方で library を導入しても次の判断は application 側に残ります。
+Even with a library, the application still decides:
 
-- duplicate key policy
-- maximum body size と nesting
-- number range
-- unknown field policy
-- error を client にどこまで返すか
+- duplicate-key policy;
+- maximum body size and nesting;
+- accepted numeric range;
+- unknown-field policy;
+- how much parse detail is returned to a remote client.
 
-この参照実装は後で同じ tree を DAG-CBOR value へ変換するため、限定された codec として維持します。
-
+This reference implementation remains a deliberately narrow codec because the
+same tree is later converted into DAG-CBOR values.

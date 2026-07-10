@@ -1,27 +1,33 @@
-# 01: AT Protocol のメンタルモデル
+# 01: The AT Protocol mental model
 
-## この章のゴール
+## Goal
 
-AT Protocol を「Bluesky の API」ではなく、identity、署名されたデータ、hosting、配送、application view を分離する protocol として説明できるようにします。
+Explain AT Protocol as a separation of identity, signed data, hosting,
+distribution, and application views—not merely as “the Bluesky API.”
 
-## まず五つに分ける
+## Five distinct parts
 
 ### 1. Identity
 
-account の永続的な識別子は DID です。handle は人間が読みやすく変更可能な名前です。
+An account's durable identifier is a DID. A handle is a human-readable,
+changeable name.
 
 ```text
-handle: alice.example.com       人間向け。変更できる
-DID:    did:plc:...             account の安定した識別子
+handle: alice.example.com       human-facing; may change
+DID:    did:plc:...             stable account identifier
 ```
 
-AT Protocol が現在相互運用対象にしている DID method は `did:plc` と `did:web` です。DID document には少なくとも、現在の PDS の場所と repository commit を検証する公開鍵が現れます。
+The interoperable DID methods are currently `did:plc` and `did:web`. A DID
+document identifies at least the current PDS and a public key used to verify
+repository commits.
 
-重要なのは `handle -> DID` の結果だけを信頼しないことです。DID document 側も同じ handle を宣言しているかを確認することで、古い DNS や乗っ取られた片方向の紐付けを検出します。
+Never trust only `handle -> DID`. Verify that the DID document also claims the
+same handle. This detects stale DNS and malicious one-way bindings.
 
 ### 2. Repository
 
-各 account は公開 record の key/value map を一つ持ちます。key は `collection/rkey`、value は DAG-CBOR record の CID です。
+Each account has one public record key/value map. A key is
+`collection/rkey`; a value points to a DAG-CBOR record by CID.
 
 ```text
 app.bsky.actor.profile/self       -> bafy...
@@ -29,38 +35,48 @@ app.bsky.feed.post/3l...          -> bafy...
 com.example.bookmark/3l...        -> bafy...
 ```
 
-map は deterministic な Merkle Search Tree (MST) で表現されます。同じ key/value 集合なら挿入順に関係なく同じ root CID になります。commit は root CID を含み、account の署名鍵で署名されます。
+The map is represented as a deterministic Merkle Search Tree (MST). The same
+key/value set produces the same root CID regardless of insertion order. A
+commit contains that root and is signed by the account's repository key.
 
-これにより、データを PDS 以外から受け取っても内容、tree、commit signature を検証できます。「PDS が正しいと言ったから」ではなく、content address と署名で判断します。
+This allows data received from somewhere other than the PDS to be verified by
+content address, tree structure, and signature. The verifier does not rely on
+the statement “the PDS said it was correct.”
 
 ### 3. PDS
 
-Personal Data Server は account を host します。主な責務は次です。
+A Personal Data Server hosts accounts. Its main responsibilities are:
 
-- 認証された client request を受ける
-- record write を検証し repository commit を作る
-- blob を保存・配信する
-- repository export と event stream を提供する
-- identity と account lifecycle を管理する
-- AppView など別 service への request を必要に応じて proxy する
+- authenticate client requests;
+- validate writes and create repository commits;
+- store and serve blobs;
+- provide repository exports and event streams;
+- manage identity and account lifecycle;
+- proxy selected requests to services such as an AppView.
 
-PDS は application の検索結果や timeline をすべて持つ必要はありません。
+A PDS does not need to calculate every search result or timeline.
 
-### 4. Relay / Sync
+### 4. Relay and synchronization
 
-PDS は repository update を event stream に流します。Relay は複数 PDS の stream を集約できます。consumer は最初に CAR 形式の repository export で backfill し、その後 stream で差分を追います。
+PDS instances publish repository updates as event streams. A Relay can
+aggregate streams from many PDS instances. A consumer backfills from a CAR
+repository export and then follows incremental events.
 
-stream に欠落を見つけたら、推測で埋めず full repository を取り直します。各 repository の revision は同期位置を判定する logical clock です。
+When a stream gap appears, do not guess missing state. Download and verify the
+repository again. Repository revisions are logical synchronization checkpoints.
 
 ### 5. AppView
 
-AppView は repository record を index し、検索、thread、feed、集約済み profile のような application-specific view を返します。`app.bsky.*` は microblogging application の Lexicon であり、AT Protocol core そのものではありません。
+An AppView indexes records and returns application-specific views such as
+search, threads, feeds, and aggregated profiles. `app.bsky.*` is the Lexicon
+namespace for a microblogging application, not the entire AT Protocol core.
 
-同じ account repository に別 application の record を共存させられます。record の意味と API schema は Lexicon の NSID で名前空間化されます。
+Different applications can store records in the same account repository.
+Lexicon NSIDs namespace each record's meaning and API schema.
 
-## 読み書きの流れ
+## Read and write flows
 
-### 読み取り
+### Read
 
 ```mermaid
 sequenceDiagram
@@ -68,14 +84,15 @@ sequenceDiagram
   participant P as PDS
   participant A as AppView
   C->>P: XRPC request
-  P->>A: service proxy or direct service request
+  P->>A: proxied or direct service request
   A-->>P: indexed application view
   P-->>C: JSON response
 ```
 
-公開 repository record は PDS から直接読めます。一方、feed や検索のような集約結果は通常 AppView の責務です。
+Public repository records can be read directly from a PDS. Aggregated results
+such as feeds and search are normally AppView responsibilities.
 
-### 書き込み
+### Write
 
 ```mermaid
 sequenceDiagram
@@ -91,60 +108,67 @@ sequenceDiagram
   A->>A: verify and index
 ```
 
-client が AppView の database へ直接書くわけではありません。source of truth は account repository です。
+The client does not write directly into an AppView database. The account
+repository is the source of truth.
 
-## URI を混同しない
+## Do not confuse the identifiers
 
-| 表現 | 例 | 意味 |
+| Representation | Example | Meaning |
 | --- | --- | --- |
-| HTTPS URL | `https://pds.example/xrpc/...` | network 上の endpoint |
-| DID | `did:plc:...` | 永続的な identity |
-| handle | `alice.example.com` | 変更可能な人間向け名 |
-| AT URI | `at://did:plc:.../app.bsky.feed.post/3l...` | repository 内の record |
-| CID | `bafy...` | 特定の bytes の content address |
-| NSID | `com.atproto.repo.getRecord` | schema / method の名前 |
+| HTTPS URL | `https://pds.example/xrpc/...` | network endpoint |
+| DID | `did:plc:...` | durable identity |
+| handle | `alice.example.com` | changeable human name |
+| AT URI | `at://did:plc:.../app.bsky.feed.post/3l...` | repository record |
+| CID | `bafy...` | content address for exact bytes |
+| NSID | `com.atproto.repo.getRecord` | schema or method name |
 
-AT URI は取得先の server を固定しません。DID を解決して現在の PDS を発見してから、HTTPS の XRPC endpoint を呼びます。この間接参照が hosting migration を可能にします。
+An AT URI does not pin a server. Resolve its DID to discover the current PDS,
+then call an HTTPS XRPC endpoint. That indirection permits hosting migration.
 
-## XRPC と Lexicon
+## XRPC and Lexicon
 
-XRPC は HTTP 上の共通規約です。
+XRPC is a convention over HTTP:
 
-- query は `GET /xrpc/{NSID}`
-- procedure は `POST /xrpc/{NSID}`
-- query parameter、input、output、error は Lexicon schema で宣言される
-- JSON が中心だが、blob、CAR、event stream の binary body も扱う
+- a query is `GET /xrpc/{NSID}`;
+- a procedure is `POST /xrpc/{NSID}`;
+- Lexicons define parameters, input, output, and named errors;
+- JSON is common, while blobs, CAR, and event streams use binary bodies.
 
-Lexicon は単なる JSON shape だけでなく、method 名と record type に共有された意味を与えます。知らない Lexicon record も repository block として転送でき、理解する service だけが index できます。
+A Lexicon gives shared meaning to both method names and record types. Services
+can transfer unknown records as repository blocks while only applications that
+understand the Lexicon index their contents.
 
-## 信頼境界を一文で言う
+## State the trust boundary
 
-この教材では、処理ごとに次の三問を置きます。
+For every operation, answer:
 
-1. 誰がこの値を主張したか。
-2. 何を使って検証できるか。
-3. いつ再検証しなければならないか。
+1. Who asserted this value?
+2. What verifies it?
+3. When must it be revalidated?
 
-たとえば record を受け取ったとき、JSON を返した host だけを信頼するのでは不十分です。record bytes の CID、MST への包含、commit signature、署名鍵を含む現在の DID document を順に検証します。一方、handle と account hosting status は repository の署名だけでは自己認証できないため、identity resolution が別途必要です。
+For example, a host returning record JSON is insufficient. Verify the record
+bytes against its CID, inclusion in the MST, the commit signature, and the DID
+document that supplies the signing key. Handles and current hosting cannot be
+self-authenticated by the repository signature, so identity resolution remains
+a separate operation.
 
-## 手を動かす
+## Exercise
 
-まだコードは書きません。任意の Bluesky profile を一つ選び、紙かテキストに次を別々に書いてください。
+Pick any account and write down these as five distinct values:
 
-1. handle
-2. DID
-3. PDS endpoint
-4. profile record の AT URI
-5. profile record の CID
+1. handle;
+2. DID;
+3. PDS endpoint;
+4. profile-record AT URI;
+5. profile-record CID.
 
-五つを同じ「ID」と呼ばず、それぞれが変化する条件を説明できればこの章は完了です。
+Explain when each may change. Do not call all five “the ID.”
 
-## 仕様への入口
+## Specifications
 
 - [Protocol overview](https://atproto.com/guides/overview)
-- [AT Protocol specification](https://atproto.com/specs/atp)
+- [AT Protocol](https://atproto.com/specs/atp)
 - [DID](https://atproto.com/specs/did)
 - [Repository](https://atproto.com/specs/repository)
-- [XRPC](https://atproto.com/specs/xrpc)
+- [HTTP API (XRPC)](https://atproto.com/specs/xrpc)
 - [Sync](https://atproto.com/specs/sync)
-

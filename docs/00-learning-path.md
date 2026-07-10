@@ -1,104 +1,117 @@
-# 00: 学習ロードマップ
+# 00: Learning path
 
-## このハンズオンの読み方
+## How to use this guide
 
-章は依存関係の順に並んでいます。知らない単語を暗記してから進む必要はありません。各段階で「いま何を識別し、誰を信頼し、どのバイト列を運んでいるか」を確認してください。
+The chapters follow dependency order. You do not need to memorize unfamiliar
+terms in advance. At each stage, ask: what is being identified, who asserted
+the value, and which exact bytes are moving?
 
-各章の作業は次のサイクルで進みます。
+Use this loop in every chapter:
 
-1. 目的を一文で言う。
-2. wire format またはデータ構造を手で観察する。
-3. 最小コードを書く。
-4. 正常系を実行する。
-5. 1 byte または 1 field を壊し、拒否されることを確認する。
-6. 仕様の MUST / SHOULD と実装上の選択を分けて説明する。
+1. State the goal in one sentence.
+2. Inspect the wire format or data structure by hand.
+3. Write the smallest correct implementation.
+4. Run the success path.
+5. Corrupt one byte or field and prove it is rejected.
+6. Separate specification MUST/SHOULD rules from implementation choices.
 
-## 全体像
+## Overview
 
-| Phase | 章 | 作るもの | 完了時に説明できること |
+| Phase | Chapters | Deliverable | What you can explain afterward |
 | --- | --- | --- | --- |
-| 0 | 00–03 | 開発環境、メンタルモデル、Scala 入門 | protocol と application の境界 |
-| 1 | 04–06 | JSON、識別子、XRPC client | `at://` と `/xrpc/` が指すもの |
-| 2 | 07–08 | handle / DID resolver、Lexicon validator | account の PDS を独立に発見する方法 |
-| 3 | 09–12 | DAG-CBOR、CID、CAR、MST | repository が改ざんを検出できる理由 |
-| 4 | 13 | 署名付き repository | DID の鍵で commit を検証する方法 |
-| 5 | 14–15 | CLI client、最小 PDS | client-server の読み書き全体 |
-| 6 | 16 | export/import、firehose consumer | batch と streaming sync の役割分担 |
-| 7 | 17 | legacy session、OAuth | 認証主体、認可、token binding の違い |
-| 8 | 18–19 | federation 演習、production checklist | AppView / Relay を含む運用境界 |
+| 0 | 00–03 | environment, mental model, Scala basics | protocol/application boundaries |
+| 1 | 04–06 | JSON, identifiers, XRPC client | what `at://` and `/xrpc/` identify |
+| 2 | 07–08 | identity resolver, Lexicon validator | independent PDS discovery and typed data |
+| 3 | 09–12 | DAG-CBOR, CID, CAR, MST | how repositories detect tampering |
+| 4 | 13 | signed repository | how a DID key authenticates a commit |
+| 5 | 14–15 | CLI client, minimal PDS | complete client/server record writes |
+| 6 | 16 | export and firehose consumer | batch versus streaming synchronization |
+| 7 | 17 | legacy session and OAuth | authentication, authorization, token binding |
+| 8 | 18–19 | federation lab, production checklist | AppView/Relay and operational boundaries |
 
-## 推奨順序
+## Recommended order
 
-### Phase 0: 迷子にならない地図を作る
+### Phase 0: Build a map
 
-- [01: AT Protocol のメンタルモデル](01-mental-model.md)
-- [02: Nix で学習環境を作る](02-environment.md)
-- [03: Scala 3 と型で不変条件を表す](03-scala-foundations.md)
+- [01: The AT Protocol mental model](01-mental-model.md)
+- [02: Build the environment with Nix](02-environment.md)
+- [03: Express invariants with Scala 3](03-scala-foundations.md)
 
-この段階では「分散型」という言葉を曖昧に使わず、identity、hosting、data、indexing が別々に移動・検証できることを捉えます。
+Treat identity, hosting, data, and indexing as separate movable and verifiable
+parts instead of hiding them behind the vague word “decentralized.”
 
-### Phase 1: 普通の HTTP として触る
+### Phase 1: Use ordinary HTTP
 
-- [04: 依存ゼロ JSON codec](04-json.md)
-- [05: DID / handle / NSID / AT URI / record key / TID](05-identifiers.md)
-- [06: XRPC query と procedure](06-xrpc.md)
+- [04: Dependency-free JSON codec](04-json.md)
+- [05: DID, handle, NSID, AT URI, record key, and TID](05-identifiers.md)
+- [06: XRPC queries and procedures](06-xrpc.md)
 
-最初の成果物は公開 endpoint を呼べる CLI です。認証も CBOR もまだ要りません。
+The first artifact is a CLI that calls public endpoints. Authentication and
+CBOR are not needed yet.
 
-### Phase 2: account からサーバーを発見する
+### Phase 2: Discover an account server
 
-- [07: handle と DID の双方向検証](07-identity.md)
+- [07: Bidirectional handle and DID verification](07-identity.md)
 - [08: Lexicon and schema-driven validation](08-lexicon.md)
 
-入力された handle をそのまま URL として信頼してはいけない理由と、DID document から PDS endpoint と署名鍵を得る流れを実装します。
+Implement why a user-supplied handle is not a trusted URL, and how a DID
+document yields a PDS endpoint and repository signing key.
 
-### Phase 3: repository のバイト列を理解する
+### Phase 3: Understand repository bytes
 
-- [09: deterministic DAG-CBOR](09-dag-cbor.md)
-- [10: multihash / CID / multibase](10-cid.md)
+- [09: Deterministic DAG-CBOR](09-dag-cbor.md)
+- [10: Multihash, CID, and multibase](10-cid.md)
 - [11: CAR v1](11-car.md)
 - [12: Merkle Search Tree](12-mst.md)
 
-ここが protocol の中心です。便利な CBOR/IPLD ライブラリで隠さず、限定した正しい codec を作ります。
+This is the protocol core. We implement a narrow correct codec instead of
+hiding the byte-level rules behind a general CBOR/IPLD library.
 
-### Phase 4: repository を認証する
+### Phase 4: Authenticate a repository
 
-- [13: P-256、署名、commit、revision](13-signed-repository.md)
+- [13: P-256, signatures, commits, and revisions](13-signed-repository.md)
 
-レコード単体ではなく、repository root に署名する意味を確認します。
+Verify why the account signs a repository root rather than each isolated
+record.
 
-### Phase 5: client と PDS を接続する
+### Phase 5: Connect client and PDS
 
-- [14: 実用 CLI client](14-client.md)
-- [15: 最小 PDS](15-local-pds.md)
+- [14: Practical CLI client](14-client.md)
+- [15: Minimal PDS](15-local-pds.md)
 
-`createRecord` から commit、block store、`getRecord`、`getRepo` までを一本につなぎます。
+Connect `createRecord`, commits, block storage, `getRecord`, and `getRepo` in
+one end-to-end path.
 
-### Phase 6: データを転送する
+### Phase 6: Transfer data
 
 - [16: CAR mirror and event stream](16-sync.md)
 
-初回同期は repository export、差分追従は firehose、欠落時は再同期という状態機械を作ります。
+Build the state machine: repository export for bootstrap, firehose events for
+incremental updates, and full resynchronization after a gap.
 
-### Phase 7: 安全に権限を渡す
+### Phase 7: Delegate authority safely
 
-- 17: legacy session から OAuth へ
+- 17: From legacy sessions to OAuth
 
-学習順序として legacy `createSession` を先に扱いますが、ユーザー向けアプリケーションの最終到達点は [AT Protocol OAuth profile](https://atproto.com/specs/oauth) です。
+The legacy `createSession` endpoint comes first for teaching, but the final
+user-facing client target is the [AT Protocol OAuth profile](https://atproto.com/specs/oauth).
 
-### Phase 8: production readiness を判断する
+### Phase 8: Evaluate production readiness
 
-- 18: AppView / Relay / Labeler との連合
-- 19: 永続化、鍵、abuse、moderation、監視、backup
+- 18: Federation with AppView, Relay, and Labeler
+- 19: Persistence, keys, abuse, moderation, observability, and backup
 
-ここでは「動く PDS」と「インターネットへ安全に公開できる PDS」の差をチェックリスト化します。
+These chapters turn the difference between “a PDS responds” and “a PDS is safe
+to expose to the internet” into an explicit checklist.
 
-## 学習完了の判定
+## Completion test
 
-次を資料なしでホワイトボードに描き、実際の失敗をログから切り分けられれば完了です。
+You are done when you can draw these without notes and diagnose real failures
+from logs:
 
-1. `alice.example.com` から DID、DID document、PDS へ至る解決経路
-2. JSON record から DAG-CBOR block、CID、MST root、signed commit、CAR へ至る変換
-3. client、PDS、Relay、AppView の request と data flow
-4. OAuth authorization code flow における discovery、PAR、PKCE、DPoP nonce
-5. PDS 停止・移行・鍵 rotation・stream gap のそれぞれで再検証する対象
+1. `alice.example.com` to DID, DID document, and PDS;
+2. JSON record to DAG-CBOR block, CID, MST root, signed commit, and CAR;
+3. client/PDS/Relay/AppView request and data flows;
+4. OAuth discovery, PAR, PKCE, callback state, and DPoP nonce handling;
+5. what must be revalidated after PDS downtime, migration, key rotation, or a
+   stream gap.

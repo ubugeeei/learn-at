@@ -1,49 +1,46 @@
-# 06: XRPC を普通の HTTP として実装する
+# 06: Implement XRPC as ordinary HTTP
 
-## この章のゴール
+## Goal
 
-Lexicon の query と procedure を HTTP request に変換し、成功・protocol error・transport failure を区別します。公開 endpoint と認証 endpoint の両方に使える client core を作ります。
+Translate Lexicon queries and procedures into HTTP requests while distinguishing
+success, protocol errors, malformed responses, and transport failures. Build a
+client core usable by both public and authenticated endpoints.
 
-実装は `src/main/scala/learnat/xrpc/Xrpc.scala` にあります。
+Implementation: `src/main/scala/learnat/xrpc/Xrpc.scala`
 
-## XRPC は何を決めるのか
+## What XRPC defines
 
-XRPC (Lexicon RPC) は AT Protocol の HTTP 規約です。endpoint 名に NSID を使います。
+XRPC (Lexicon RPC) is AT Protocol's HTTP convention. Endpoint names are NSIDs:
 
 ```text
 GET  /xrpc/com.atproto.repo.getRecord
 POST /xrpc/com.atproto.repo.createRecord
 ```
 
-二種類の method があります。
-
-| Lexicon type | HTTP | input | 意味 |
+| Lexicon type | HTTP | Input | Meaning |
 | --- | --- | --- | --- |
-| query | GET | URL query parameter | cache 可能で state を変更しない |
-| procedure | POST | request body | state を変更し得る |
+| query | GET | URL query parameters | cacheable, does not change state |
+| procedure | POST | request body | may change state |
 
-「record を読むから GET、作るから POST」と名前から推測するのではなく、Lexicon definition の `type` を読みます。
+Do not infer the verb from an English endpoint name. Read the Lexicon
+definition's `type`.
 
-## transport と protocol を分離する
+## Separate transport from protocol
 
-JDK `HttpClient` を直接すべての client method から呼ばず、最小 interface を置きます。
+Instead of invoking JDK `HttpClient` in every API method, define one boundary:
 
 ```scala
 trait HttpTransport:
   def send(request: HttpRequestData): Either[XrpcError, HttpResponseData]
 ```
 
-production では `JdkHttpTransport`、test では request を記録して固定 response を返す `RecordingTransport` を使います。これにより次を network なしで test できます。
+Runtime code uses `JdkHttpTransport`; tests use a recording transport with fixed
+responses. Without a network, tests can inspect the verb, URI, headers, exact
+body bytes, status handling, and error decoding.
 
-- GET / POST
-- URI と query encoding
-- header
-- request body bytes
-- status と error decoding
+## Service URL invariant
 
-## service URL の不変条件
-
-XRPC path は常に origin の top-level `/xrpc/` です。client 作成時に service URL を検証します。
+XRPC always lives at top-level `/xrpc/`. Validate the service URL once:
 
 ```text
 valid:   https://pds.example
@@ -52,36 +49,33 @@ invalid: ftp://pds.example
 invalid: https://pds.example/prefix
 ```
 
-query と fragment も service URL には置けません。DID document から得た URL も untrusted input なので同じ check を通します。
+Query and fragment components are also forbidden. A DID-document URL is still
+untrusted input and passes through the same check.
 
-## query parameter を encode する
+## Encode query parameters
 
-parameter は UTF-8 bytes にして RFC 3986 unreserved character 以外を `%HH` にします。
+Convert each value to UTF-8 and percent-encode bytes outside the RFC 3986
+unreserved set:
 
 ```text
 input: alice+test.example
 wire:  alice%2Btest.example
 
-input: 日本語
-wire:  %E6%97%A5%E6%9C%AC%E8%AA%9E
+input: café
+wire:  caf%C3%A9
 ```
 
-HTML form 用 encoder は space を `+` にする場合があります。XRPC URI builder では percent encoding を明示的に実装しています。
+HTML form encoders may turn spaces into `+`; the URI builder deliberately uses
+percent encoding. Parameters remain `Vector[(String, String)]`, not a Map,
+because arrays can repeat the same parameter name.
 
-同じ名前の parameter が複数回現れる array encoding を失わないよう、input は `Map` ではなく `Vector[(String, String)]` です。
-
-## query
+## Query
 
 ```scala
 val method = Nsid.parse("com.atproto.identity.resolveHandle").toOption.get
 
-client.query(
-  method,
-  Vector("handle" -> "alice.example.com")
-)
+client.query(method, Vector("handle" -> "alice.example.com"))
 ```
-
-wire request は次になります。
 
 ```http
 GET /xrpc/com.atproto.identity.resolveHandle?handle=alice.example.com HTTP/1.1
@@ -102,33 +96,34 @@ client.procedure(
 )
 ```
 
-body は UTF-8 JSON、`Content-Type` は `application/json`、token は `Authorization: Bearer ...` です。
+The body is UTF-8 JSON, `Content-Type` is `application/json`, and a legacy token
+uses `Authorization: Bearer ...`. OAuth later uses DPoP-bound authorization.
 
-## binary body
+## Binary bodies
 
-すべての XRPC が JSON ではありません。
+Not every XRPC body is JSON:
 
-- `com.atproto.sync.getRepo`: CAR response
-- `com.atproto.repo.importRepo`: CAR input
-- `com.atproto.repo.uploadBlob`: binary input
-- `com.atproto.sync.subscribeRepos`: WebSocket event stream
+- `com.atproto.sync.getRepo`: CAR response;
+- `com.atproto.repo.importRepo`: CAR input;
+- `com.atproto.repo.uploadBlob`: binary input;
+- `com.atproto.sync.subscribeRepos`: WebSocket event stream.
 
-そこで `queryBytes` と `procedureBytes` は parse 前の status / headers / bytes を返します。caller が content type に対応する codec を選びます。WebSocket は後の sync 章で別 transport として扱います。
+`queryBytes` and `procedureBytes` return status, headers, and bytes before
+parsing. The caller chooses a codec from the content type. WebSocket transport
+is implemented separately in chapter 16.
 
-## response と error
+## Responses and errors
 
-2xx は成功です。JSON method は body を JSON parser に渡します。parse できない 2xx は success にせず `InvalidResponse` です。
+Any 2xx status is successful. A JSON endpoint still fails with
+`InvalidResponse` when its successful body is not JSON.
 
-非 2xx の標準 error body は次です。
+A standard non-2xx body is:
 
 ```json
-{
-  "error": "InvalidRequest",
-  "message": "repo is required"
-}
+{"error":"InvalidRequest","message":"repo is required"}
 ```
 
-client は次を分けます。
+The client preserves important failure categories:
 
 ```scala
 enum XrpcError:
@@ -139,41 +134,48 @@ enum XrpcError:
   case Remote(status, error, message)
 ```
 
-retry の判断に重要です。DNS timeout と `InvalidRequest` を同じ例外として retry してはいけません。401 で token refresh、429/5xx で backoff、400 で input 修正、という policy はこの分類の上に置きます。
+Retry policy belongs above this classification. Do not retry a DNS timeout and
+an `InvalidRequest` identically. A higher layer may refresh on 401, back off on
+429/5xx, and correct input on 400.
 
-## size limit
+## Size limits
 
-client は response body の最大値を持ちます。現在の JDK transport は body を受信後に上限を確認するため、完全な streaming defense ではありません。本番 client では limited `BodySubscriber`、timeout、endpoint ごとの上限を追加すべきです。
+The client bounds response bodies. The current JDK transport checks after
+receiving the body, so it is not a complete streaming defense. A production
+client should use a limited `BodySubscriber`, endpoint-specific size limits,
+and stricter timeout policy. Large CAR exports and small metadata documents
+should not share one indiscriminate limit.
 
-CAR のような大きい response と、小さい JSON metadata に同じ上限を使わない設計も必要です。この教材では constructor で client ごとに上限を選べます。
-
-## 実行して観察する
+## Run and observe
 
 ```console
 $ nix develop --command sbt verify
 ```
 
-XRPC test は fake transport に届いた `HttpRequestData` を調べます。実 network の可用性、rate limit、account に依存せず wire contract を確かめられます。
+XRPC tests inspect `HttpRequestData` captured by the fake transport, so protocol
+tests do not depend on public-server availability or rate limits.
 
-## 演習
+## Exercises
 
-1. query encoder を `java.net.URLEncoder` に替え、space と plus の結果を比較する。
-2. 400 response を 2xx と同じ JSON として返す変更を行い、caller が成功と失敗を区別できなくなることを説明する。
-3. `queryBytes` で `Accept: application/vnd.ipld.car` を指定する test を追加する。
-4. fake transport が `XrpcError.Transport` を返す test を書き、remote error と表示を分ける。
+1. Replace the query encoder with `java.net.URLEncoder`; compare spaces and plus
+   signs.
+2. Return a 400 body as if it were 2xx and explain how the caller loses failure
+   semantics.
+3. Test `queryBytes` with `Accept: application/vnd.ipld.car`.
+4. Make the fake transport return `XrpcError.Transport` and render it
+   differently from a remote protocol error.
 
-## まだ実装していないもの
+## Remaining layers
 
-- Lexicon からの request / response validation と code generation
-- retry / exponential backoff / rate-limit policy
-- OAuth DPoP proof と nonce retry
-- service proxy header の policy
-- WebSocket event stream
+- Lexicon-derived endpoint code generation;
+- retry, exponential backoff, and rate-limit policy;
+- DPoP proof and nonce retry;
+- service-proxy header policy.
 
-これらを transport 内へ詰め込まず、上の層として追加します。
+These should compose above the transport instead of becoming hidden transport
+side effects.
 
-## 仕様
+## Specifications
 
 - [HTTP API (XRPC)](https://atproto.com/specs/xrpc)
 - [Lexicon](https://atproto.com/specs/lexicon)
-

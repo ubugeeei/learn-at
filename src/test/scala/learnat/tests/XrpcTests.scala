@@ -15,13 +15,13 @@ object XrpcTests:
       val transport = RecordingTransport(jsonResponse(200, """{"did":"did:plc:123"}"""))
       val client = XrpcClient.create(URI.create("https://pds.example/"), transport).toOption.get
       val method = Nsid.parse("com.atproto.identity.resolveHandle").toOption.get
-      val result = client.query(method, Vector("handle" -> "alice+test.example", "tag" -> "日本語"))
+      val result = client.query(method, Vector("handle" -> "alice+test.example", "tag" -> "café"))
       assert(result.isRight, result)
       val request = transport.lastRequest.get
       equal(request.method, HttpMethod.Get)
       equal(
         request.uri.toString,
-        "https://pds.example/xrpc/com.atproto.identity.resolveHandle?handle=alice%2Btest.example&tag=%E6%97%A5%E6%9C%AC%E8%AA%9E"
+        "https://pds.example/xrpc/com.atproto.identity.resolveHandle?handle=alice%2Btest.example&tag=caf%C3%A9"
       )
       assert(request.body.isEmpty)
     }
@@ -71,4 +71,3 @@ object XrpcTests:
     override def send(request: HttpRequestData): Either[XrpcError, HttpResponseData] =
       lastRequest = Some(request)
       Right(response)
-

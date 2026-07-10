@@ -1,228 +1,220 @@
-# 07: handle と DID を双方向に検証する
+# 07: Verify handles and DIDs bidirectionally
 
-## この章のゴール
+## Goal
 
-ユーザーが入力した handle から DID、DID document、PDS、repository signing key を発見します。片方向の名前解決を account identity として信頼してはいけない理由を、攻撃例と code で説明できるようにします。
+Starting from a user-supplied handle, discover the DID, DID document, PDS, and
+repository signing key. Explain with code and an attack example why one-way name
+resolution is not account authentication.
 
-実装は `src/main/scala/learnat/identity/Identity.scala` にあります。
+Implementation: `src/main/scala/learnat/identity/Identity.scala`
 
-## identity graph
+## The resolution graph
 
 ```text
-handle --DNS TXT / HTTPS--> DID
-   ^                         |
-   |                         | resolve did:plc / did:web
-   |                         v
-   +---- alsoKnownAs ---- DID document
-                             |  service #atproto_pds
-                             +----------------------> PDS URL
-                             |  verification #atproto
-                             +----------------------> signing key
+handle --DNS/HTTPS--> DID --PLC or did:web--> DID document
+   ^                                             |
+   |                                             +--> PDS service
+   +--------------- alsoKnownAs ----------------+
+                                                 +--> #atproto signing key
 ```
 
-四つを一度に「profile」と呼ばず、edge ごとの authority と freshness を考えます。
+Do not call all four values “the profile.” Each edge has a different authority
+and freshness policy.
 
-## handle から DID
+## Handle to DID
 
 ### DNS TXT
 
-推奨される方式は `_atproto.<handle>` の TXT record です。
-
-```dns
-_atproto.alice.example.com. TXT "did=did:plc:example123"
-```
-
-`did=` 以外の TXT record は無視します。有効な record が複数あり、異なる DID を示す場合は ambiguous として失敗します。たまたま最初に返った値を選ぶと、DNS server ごとの順序で identity が変わります。
-
-JDK 実装は JNDI DNS provider を使います。TXT response は quoted chunk になる場合があるため、JDK が返す quote を取り除いてから prefix を確認します。
-
-### HTTPS well-known
-
-DNS で有効な DID を得られなければ次を取得します。
-
-```http
-GET /.well-known/atproto-did HTTP/1.1
-Host: alice.example.com
-```
-
-2xx の text body を trim し、DID parser に渡します。real-world resolution は HTTPS default port が必須です。HTTP は explicit な local-development config で `.test` / `.localhost` を使う場合だけ許可します。
-
-DNS と HTTPS が別の DID を返す場合、仕様では DNS を優先できます。この実装はまず DNS を試し、有効な単一 DID があれば HTTPS を呼びません。
-
-## handle の resolution policy
-
-syntax として valid でも、resolution してはいけない TLD があります。
+The preferred route is `_atproto.<handle>` TXT:
 
 ```text
-.alt .arpa .example .internal .invalid .local .localhost .onion
+_atproto.alice.example.com. TXT "did=did:plc:..."
 ```
 
-`.test` は開発専用 config でだけ許可します。前章の `Handle.parse` はこれらを syntax error にしません。Lexicon validation と network policy を混ぜないためです。
+Ignore records without `did=`. If valid records claim different DIDs, fail as
+ambiguous instead of choosing the resolver's first result. The JDK adapter uses
+the JNDI DNS provider and removes quoted TXT chunks before checking the prefix.
 
-## DID を解決する
+### HTTPS fallback
 
-### did:plc
+If DNS produces no valid DID, fetch:
 
 ```text
-did:plc:example123
-  -> https://plc.directory/did:plc:example123
+https://<handle>/.well-known/atproto-did
 ```
 
-PLC directory が返す JSON を DID document として parse します。directory URL は config で差し替えられるので test は外部 service を使いません。
+Trim a successful text body and run the DID parser. Real-world resolution
+requires HTTPS on the default port. HTTP is allowed only by explicit local
+development policy for `.test` or `.localhost`.
 
-### did:web
+When DNS and HTTPS disagree, the resolver follows the specification preference:
+a valid unambiguous DNS result wins and the fallback is not fetched.
 
-hostname-level DID を well-known URL に変換します。
+## Handle resolution policy
+
+Some syntactically valid suffixes must not be resolved in normal mode, including
+`.local`, `.arpa`, `.invalid`, and `.onion`. `.test` is allowed only in explicit
+development mode. `Handle.parse` does not enforce this network policy because
+Lexicon syntax validation and outbound-resolution policy are different layers.
+
+## Resolve the DID document
+
+### `did:plc`
+
+```text
+https://plc.directory/<did>
+```
+
+Parse the returned JSON as a DID document. The PLC directory base URL is
+configuration so tests never require the public service.
+
+### `did:web`
+
+A hostname DID maps to:
 
 ```text
 did:web:example.com
-  -> https://example.com/.well-known/did.json
+https://example.com/.well-known/did.json
 ```
 
-atproto では path-based `did:web` を対象外にします。`localhost%3A2583` のような port 付き localhost は explicit な development mode だけです。
+Path-based `did:web` is outside the current atproto profile. A port-encoded
+localhost DID such as `did:web:localhost%3A2583` is permitted only in development
+mode. Invalid percent encoding becomes a typed resolution error, not an escaped
+exception.
+
+### Unknown method
+
+`Did.parse("did:example:123")` succeeds as generic syntax; the resolver returns
+`UnsupportedDidMethod("example")`. Preserve these states:
 
 ```text
-did:web:localhost%3A2583
-  -> http://localhost:2583/.well-known/did.json
+malformed DID != valid but unsupported DID != supported and unresolved DID
 ```
 
-percent encoding が壊れている場合は exception を外へ漏らさず `ResolutionDisallowed` にします。
+That distinction is necessary for protocol evolution.
 
-### unsupported method
+## Validate the DID document
 
-generic DID parser が `did:example:123` を受理しても resolver は `UnsupportedDidMethod("example")` を返します。
+### Document ID
 
-```text
-invalid syntax
-valid syntax but unsupported method
-supported method but resolution failed
-```
+The top-level `id` must exactly equal the requested DID. Receiving JSON from an
+expected URL is not itself identity proof.
 
-この三状態を潰さないことが protocol evolution に必要です。
+### Handle claims
 
-## DID document の検証
+Read `alsoKnownAs` entries that are exactly `at://<handle>` without extra path,
+query, or fragment. A claim is not yet a verified handle. Resolve it in the
+reverse direction and require the original DID.
 
-### id
+### Repository signing key
 
-取得対象の DID と top-level `id` が完全一致しなければ拒否します。正しい URL から JSON が返ったことだけでは identity の証明になりません。
+Select a `verificationMethod` entry with:
 
-### claimed handle
+- ID `#atproto` or `<DID>#atproto`;
+- controller equal to the account DID;
+- type `Multikey`;
+- a `publicKeyMultibase` beginning with multibase `z`.
 
-`alsoKnownAs` のうち、余分な path/query/fragment を持たない最初の `at://<handle>` を claim として読みます。
-
-```json
-{
-  "alsoKnownAs": ["at://alice.example.com"]
-}
-```
-
-claim はまだ verified handle ではありません。handle を逆向きに解決して同じ DID になることを確認します。
-
-### repository signing key
-
-現在形式では `verificationMethod` から次を満たす最初の entry を使います。
-
-- `id` が `#atproto` または `<DID>#atproto`
-- `controller` が account DID と一致
-- `type` が `Multikey`
-- `publicKeyMultibase` が multibase `z` prefix
-
-この章では key string の抽出までです。base58btc、multicodec、P-256/K-256 の decode と signature verification は repository 章で行います。
+This chapter extracts the key string. Chapter 13 decodes base58btc,
+multicodec, and P-256 and verifies signatures.
 
 ### PDS service
 
-`service` から次を満たす entry を使います。
+Select a service with:
 
-- `id` が `#atproto_pds` または `<DID>#atproto_pds`
-- `type` が `AtprotoPersonalDataServer`
-- endpoint が origin-level HTTPS URL
-- userinfo、path prefix、query、fragment を持たない
+- ID `#atproto_pds` or `<DID>#atproto_pds`;
+- type `AtprotoPersonalDataServer`;
+- an origin-level HTTPS endpoint;
+- no user info, path prefix, query, or fragment.
 
-local mode だけ localhost HTTP を許可します。URL が文法的に正しいことは、その PDS が現在応答し account を host していることまでは保証しません。
+Only local mode permits localhost HTTP. A syntactically valid URL does not prove
+the PDS currently responds or still hosts the account.
 
-## 双方向 verification
+## Why bidirectional verification matters
 
-attacker が自分の domain に次を置けるとします。
+Assume an attacker controls this DNS value:
 
-```dns
-_atproto.attacker.example TXT "did=did:plc:victim"
+```text
+attacker.example -> did:plc:victim
 ```
 
-handle -> DID だけなら `attacker.example` を victim account の別名にできます。しかし victim の DID document が `at://attacker.example` を claim していなければ、双方向 check で拒否できます。
+With only `handle -> DID`, the attacker can present their domain as a victim
+alias. The victim's DID document does not claim `at://attacker.example`, so the
+reverse check rejects the association.
 
-```scala
-for
-  did <- resolveHandle(handle)
-  document <- resolveDid(did)
-  claimed = document.claimedHandle
-  _ <- Either.cond(
-    claimed.exists(_.normalized == handle.normalized),
-    (),
-    IdentityError.HandleMismatch(handle, did, claimed)
-  )
-yield ...
+The resolver's high-level algorithm is:
+
+```text
+resolve(handle):
+  claimedDid = resolveHandle(handle)
+  document = resolveDid(claimedDid)
+  require document.id == claimedDid
+  require document.alsoKnownAs contains at://handle
+  extract PDS and signing key
 ```
 
-DID を直接入力した場合、DID document 自体は handle が壊れていても利用できます。表示用 handle だけを reverse resolution で確認し、失敗時は `None` にします。DID が primary identity だからです。
+If the caller supplies a DID directly, the account remains usable even when its
+handle is broken. Reverse-resolve a claimed handle only for display; return no
+verified handle when that check fails. The DID is primary identity.
 
-## network boundary
+## Deterministic tests
 
-```scala
-trait IdentityNetwork:
-  def dnsTxt(name: String): Either[IdentityError, Vector[String]]
-  def get(uri: URI, maxBytes: Int): Either[IdentityError, IdentityHttpResponse]
-```
+The algorithm depends on an interface, not a concrete network. Tests return
+fixed DNS and URI responses and verify:
 
-resolver の algorithm は interface だけを知ります。test では URI ごとの固定 response を返し、次を検証します。
-
-- DNS success と HTTPS fallback
-- conflicting TXT records
-- bidirectional mismatch
-- expected DID mismatch
-- PDS と signing key の抽出
-- localhost development policy
-- invalid percent encoding
-
-実行:
+- DNS success and HTTPS fallback;
+- conflicting DNS claims;
+- document-ID and reverse-handle mismatch;
+- PDS and signing-key extraction;
+- explicit localhost policy;
+- malformed percent encoding.
 
 ```console
 $ nix develop --command sbt verify
 ```
 
-## cache と再検証
+## Cache and revalidation
 
-identity resolution は時点付きの結果です。handle、DID document、PDS location、key は変更され得ます。
+Resolution is a timestamped observation. Handles, DID documents, PDS locations,
+and keys can change. A production resolver caches DNS/HTTPS handle responses,
+PLC documents, and `did:web` documents separately, with bounded positive and
+negative TTLs.
 
-production service では次を別々に cache し、TTL と negative cache を持ちます。
+Signature verification may require the key valid at a particular revision.
+During migration or rotation, do not delete account data after one transient
+resolution failure.
 
-- handle -> DID
-- DID -> DID document
-- verified handle pair
+## SSRF and redirects
 
-repository signature を検証するとき、どの時点の DID document/key が必要かも考慮します。migration や key rotation の最中に一回の失敗だけで account data を削除してはいけません。
+Identity resolution sends requests toward user-controlled hostnames. An
+internet-facing resolver also needs:
 
-## SSRF と redirect
+- private, link-local, and cloud-metadata address blocking;
+- DNS-rebinding defenses and connected-IP checks;
+- scheme/host/IP validation after every redirect;
+- strict connect/read/deadline and byte limits;
+- a trusted recursive resolver and observable failure metrics.
 
-identity resolution は user-controlled hostname へ HTTP request を行う機能です。internet-facing server に組み込む場合は、次を追加してください。
+`JdkIdentityNetwork` has timeouts and response limits but is not a complete SSRF
+sandbox. It defines the boundary between this CLI learning implementation and a
+production resolution service.
 
-- private/link-local/cloud metadata address の block
-- DNS rebinding 対策と接続先 IP の検査
-- redirect hop ごとの scheme/host/IP 再検査
-- connect/read timeout、response limit、concurrency limit
-- trusted recursive resolver と observability
+## Exercises
 
-この参照実装の `JdkIdentityNetwork` は timeout、redirect 上限の JDK default、response limit を持ちますが、完全な SSRF sandbox ではありません。CLI 学習用途と production resolver service の境界です。
+1. Add duplicate TXT records containing the same DID and explain why the result
+   is not ambiguous.
+2. Change the signing-key controller to a different DID and observe extraction
+   failure.
+3. Add `/prefix` to the PDS endpoint and explain why it cannot safely compose
+   with the fixed XRPC path.
+4. Resolve a DID whose claimed handle fails reverse resolution and prove the DID
+   identity still succeeds.
+5. Add `resolvedAt` and expiry to cache entries; define the expiry for a verified
+   handle/DID pair.
 
-## 演習
-
-1. fake DNS に同じ DID の duplicate TXT を追加し、ambiguous にならない理由を確認する。
-2. DID document の `controller` を別 DID に変え、signing key が見つからないことを確認する。
-3. PDS endpoint に `/prefix` を追加し、なぜ XRPC path と合成してはいけないか説明する。
-4. DID を直接解決する case で handle reverse resolution を失敗させ、DID identity 自体は成功する test を追加する。
-5. cache entry に `resolvedAt` と expiry を追加するとき、双方向 pair の expiry をどう決めるか設計する。
-
-## 仕様
+## Specifications
 
 - [Handle](https://atproto.com/specs/handle)
 - [DID](https://atproto.com/specs/did)
-
+- [Identity](https://atproto.com/guides/identity)
+- [Accounts](https://atproto.com/specs/account)

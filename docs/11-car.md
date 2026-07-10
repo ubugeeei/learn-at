@@ -1,23 +1,26 @@
-# 11: CAR v1 で block graph を運ぶ
+# 11: Transport a block graph with CAR v1
 
-## この章のゴール
+## Goal
 
-CID と block の集合を一つの binary file にし、読み込み時に全 block の content hash を検証します。repository export が単なる JSON dump ではない理由を理解します。
+Put root CIDs and blocks into one binary archive and verify every content hash
+while reading. Understand why a repository export is not a JSON dump.
 
-実装は `src/main/scala/learnat/ipld/Car.scala` です。
+Implementation: `src/main/scala/learnat/ipld/Car.scala`
 
-## CAR の役割
+## CAR's role
 
-Content Addressable aRchive (CAR) は root CID と block を運ぶ container です。AT Protocol では主に次に使います。
+A Content Addressable aRchive transports roots and blocks. AT Protocol uses CAR
+for:
 
-- `com.atproto.sync.getRepo` の full repository export
-- account backup / migration
-- firehose event 内の block slice
-- repository import
+- full repository export from `com.atproto.sync.getRepo`;
+- account backup and migration;
+- block slices in repository events;
+- repository import.
 
-CAR 自体は tree 構造を展開しません。header に root を置き、各 block は CID と bytes の pair です。link を辿るのは consumer です。
+CAR does not expand the graph. Its header declares roots and every section pairs
+a CID with bytes. The consumer follows links.
 
-## wire format
+## Wire format
 
 ```text
 varint(header byte length)
@@ -29,18 +32,15 @@ repeat until EOF:
   block bytes
 ```
 
-header は次の DAG-CBOR value です。
+The header is this DAG-CBOR value:
 
 ```json
-{
-  "roots": ["<CID link>"],
-  "version": 1
-}
+{"roots":["<CID link>"],"version":1}
 ```
 
-JSON は説明用です。実際の root は text string ではなく DAG-CBOR CID link です。
+That JSON is explanatory. The actual root is a DAG-CBOR CID link, not text.
 
-## write
+## Write
 
 ```scala
 val file = CarFile(
@@ -51,36 +51,38 @@ val file = CarFile(
 val bytes: Either[CarError, Array[Byte]] = Car.write(file)
 ```
 
-block 順は用途により選べます。repository export では root commit から辿りやすい順に置けますが、consumer は順序だけを信頼せず CID で参照します。
+Writers may choose block order. Repository exports often put the root commit
+first, but consumers use CIDs rather than trusting sequence position.
 
-## read と verification
+## Read and verify
 
-reader は次を順に確認します。
+The reader checks in order:
 
-1. file size limit
-2. canonical varint と header length
-3. DAG-CBOR header、version 1、CID root array
-4. 各 section length
-5. CID structure
-6. `SHA-256(block bytes) == CID digest`
-7. duplicate CID がないこと
-8. block count limit
+1. file-size limit;
+2. canonical varint and header length;
+3. canonical DAG-CBOR header, version 1, and root links;
+4. every section length;
+5. CID structure;
+6. `SHA-256(block bytes) == CID digest`;
+7. absence of duplicate CIDs;
+8. block-count limit.
 
-content mismatch を検出してから block store に入れます。先に保存して後で検証すると、失敗途中の untrusted block が cache に残ります。
+Content is verified before entering a block store. Persisting first would leave
+untrusted partial state behind after a later failure.
 
-## root と reachable block
+## Roots and reachability
 
-generic CAR は root block 自体が file に含まれない場合も表現できます。この reader は container として parse します。repository verifier は次の上位 rule を追加します。
+A generic CAR can name a root whose block is absent. This reader validates the
+container. The repository verifier adds semantic rules:
 
-- root が一つ
-- root block が存在
-- root が signed commit
-- commit から MST/record へ辿る全 block が存在
-- 未到達 block の扱いを policy で決める
+- exactly one root;
+- root block present and decodable as a signed commit;
+- every MST and record block reachable from the commit exists;
+- unreachable extra blocks follow an explicit policy.
 
-container validation と repository semantic validation を分離します。
+Keep container validation separate from repository semantics.
 
-## resource limits
+## Resource limits
 
 ```scala
 Car.Limits(
@@ -91,22 +93,24 @@ Car.Limits(
 )
 ```
 
-現在の実装は in-memory `Array[Byte]` を対象にした教材版です。大規模 repository では incremental stream reader/writer にし、block ごとに検証・backpressure・transaction を適用します。
+The learning implementation reads an in-memory `Array[Byte]`. A large
+repository needs an incremental reader/writer with per-block verification,
+backpressure, and transactional storage.
 
-## 実行と演習
+## Exercises
 
 ```console
 $ nix develop --command sbt verify
 ```
 
-1. valid CAR の最後の byte を反転し、CID mismatch を確認する。
-2. 同じ block を二回書き、duplicate rejection を確認する。
-3. root block を blocks から外しても generic reader は成功することを確認し、repository verifier の test を設計する。
-4. section length を実際より大きくし、truncation error の offset を読む。
-5. streaming reader へ変える場合、どの時点で block store transaction を commit するか設計する。
+1. Flip the final byte of a valid CAR and observe the CID mismatch.
+2. Write the same block twice and observe duplicate rejection.
+3. Remove the root block; confirm the generic reader succeeds, then design the
+   repository-verifier test.
+4. Make a section length larger than available bytes and inspect truncation.
+5. For a streaming reader, choose the exact block-store commit boundary.
 
-## 仕様
+## Specifications
 
 - [CAR v1](https://ipld.io/specs/transport/car/carv1/)
 - [AT Protocol sync](https://atproto.com/specs/sync)
-

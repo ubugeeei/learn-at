@@ -1,39 +1,43 @@
-# 03: Scala 3 で protocol の不変条件を表す
+# 03: Express protocol invariants with Scala 3
 
-## この章のゴール
+## Goal
 
-Scala を初めて使う人が、以後の実装に現れる syntax を読めるようにします。言語機能を網羅せず、protocol implementation で使う理由と一緒に覚えます。
+Learn enough Scala to read the remaining implementation. This is not a language
+tour; each feature is introduced because it helps represent protocol rules.
 
-## 値と型
+## Values and types
 
-Scala では変更しない値を `val`、変更する変数を `var` で定義します。
+Use `val` for an immutable value and `var` for a variable:
 
 ```scala
 val method = "com.atproto.repo.getRecord"
 var requestCount = 0
 ```
 
-この教材では default を `val` にします。network input を parse した後に値が変わると、検証した値と使用した値が別になる危険があるためです。`var` は parser cursor や server state のような狭い境界に閉じ込めます。
+This project defaults to `val`. If network input changes after validation, the
+used value may differ from the validated value. Mutation is confined to narrow
+boundaries such as parser cursors and server state.
 
-型は `:` の後ろです。
+A type follows `:`:
 
 ```scala
 val port: Int = 2583
 val did: String = "did:web:localhost"
 ```
 
-compiler が推論できるときは省略できます。
+The annotation may be omitted when the compiler can infer it.
 
-## method と object
+## Methods and objects
 
-`def` は method です。Scala 3 では indentation が block を表します。
+`def` introduces a method. Scala 3 indentation defines the block:
 
 ```scala
 def xrpcPath(nsid: String): String =
   s"/xrpc/$nsid"
 ```
 
-`object` は process 内に一つだけ存在する値です。entry point や、関連する constructor をまとめる companion object に使います。
+An `object` is a single value in the process. It is useful for entry points and
+for companion constructors associated with a class:
 
 ```scala
 object Main:
@@ -41,23 +45,26 @@ object Main:
     println("learn-at")
 ```
 
-`Unit` は意味のある戻り値がないことを表します。
+`Unit` means there is no meaningful return value.
 
-## case class
+## Case classes
 
-`case class` は immutable data を表すのに向いています。
+A `case class` is a good representation for immutable data:
 
 ```scala
 final case class XrpcError(error: String, message: Option[String])
 ```
 
-`final` は継承して別の意味に変えられないことを表します。`case class` は constructor、値による等価比較、`toString`、pattern matching を自動で提供します。
+`final` prevents a subclass from changing its meaning. A case class supplies a
+constructor, value equality, `toString`, and pattern matching.
 
-ただの `String` を everywhere で使うと、DID を受け取る method に handle や CID を誤って渡せます。後の章では validation 済みの値を別の型にします。
+Using `String` everywhere lets a caller accidentally pass a handle or CID to a
+method that requires a DID. Later chapters return different validated types
+from different parsers.
 
-## enum と pattern matching
+## Enums and pattern matching
 
-取り得る形が有限なら `enum` を使います。JSON は六種類です。
+Use an `enum` when the possible shapes are finite. JSON has six:
 
 ```scala
 enum Json:
@@ -69,7 +76,7 @@ enum Json:
   case Obj(fields: Vector[(String, Json)])
 ```
 
-値の形によって処理を分けるのが `match` です。
+`match` branches on shape:
 
 ```scala
 def kind(value: Json): String = value match
@@ -81,34 +88,35 @@ def kind(value: Json): String = value match
   case Json.Obj(_)  => "object"
 ```
 
-全 case を書き忘れると compiler が指摘できます。unknown input を `null` や cast で処理するより、protocol state を列挙するほうが安全です。
+The compiler can report an omitted case. Enumerating protocol states is safer
+than representing unknown input with `null` and casts.
 
-## Option: 値がない可能性
+## Option: a value may be absent
 
-`Option[A]` は `Some(value)` または `None` です。
+`Option[A]` is either `Some(value)` or `None`:
 
 ```scala
 val cursor: Option[String] = None
-```
 
-Java の `null` と違い、使う側が「ない場合」を処理しなければなりません。Lexicon の optional field、query cursor、previous commit などに使います。
-
-```scala
 cursor match
   case Some(value) => println(s"resume from $value")
   case None        => println("start from the beginning")
 ```
 
-## Either: 成功または説明可能な失敗
+Unlike Java `null`, the type forces callers to handle absence. Examples include
+optional Lexicon fields, pagination cursors, and previous commits.
 
-network input は失敗して当然です。`Either[E, A]` は `Left(error)` または `Right(value)` で表します。
+## Either: success or an explained failure
+
+Network input is expected to be invalid sometimes. `Either[E, A]` is
+`Left(error)` or `Right(value)`:
 
 ```scala
 def parsePort(input: String): Either[String, Int] =
   input.toIntOption.toRight(s"invalid port: $input")
 ```
 
-複数の parse を順番に行うときは `flatMap` または `for` を使います。
+Compose several parsers with `flatMap` or `for`:
 
 ```scala
 val result: Either[String, String] =
@@ -118,28 +126,36 @@ val result: Either[String, String] =
   yield url
 ```
 
-途中が `Left` なら残りを実行せず、その error を返します。例外と違い、method signature だけで失敗を見つけられます。
+A `Left` stops the remaining steps and propagates the error. Unlike an
+unchecked exception, failure is visible in the method signature.
 
-## Vector と Map
+## Vector and Map
 
-`Vector[A]` は順序を持つ immutable collection です。JSON array、CAR block の列、MST entry に使います。
+`Vector[A]` is an ordered immutable collection used for JSON arrays, CAR block
+sequences, and MST entries.
 
-`Map[K, V]` は key/value collection です。ただし JSON object codec では `Vector[(String, Json)]` を使っています。理由は入力順を観察でき、重複 key を parse 時に明示的に拒否できるためです。
+`Map[K, V]` is a key/value collection. The JSON codec instead keeps objects as
+`Vector[(String, Json)]` so input order remains observable and duplicate keys
+can be rejected explicitly during parsing.
 
-## boundary で effect を扱う
+## Effects at the boundary
 
-HTTP、filesystem、clock、secure random は同じ引数でも結果が変わる effect です。一方、JSON render や CID calculation は同じ入力なら同じ結果を返す pure function です。
+HTTP, the filesystem, clocks, and secure randomness are effects: the same call
+may produce a different result. JSON rendering and CID calculation are pure:
+the same input produces the same output.
 
 ```text
 effectful boundary: HTTP -> bytes
 pure core:          bytes -> JSON -> validated value
 ```
 
-pure core を増やすと test が network や時刻に依存しません。client と PDS の設計では、effectful boundary から得た値をすぐ parse し、検証済みの型だけを core に渡します。
+A larger pure core makes tests independent of networks and clocks. The client
+and PDS parse effectful input immediately and pass only validated types inward.
 
-## test runner
+## Test runner
 
-外部 test library を使わず、`TestKit.test` に code block を渡します。
+The project uses no external test library. Pass a by-name block to
+`TestKit.test`:
 
 ```scala
 test("description") {
@@ -147,20 +163,21 @@ test("description") {
 }
 ```
 
-body は `=> Unit`、つまり呼び出し前には評価しない引数です。runner が `try/catch` の内側で実行し、失敗した test 名を表示できます。
+The body type is `=> Unit`, so it is evaluated inside the runner's `try/catch`,
+which can print the failing test name.
 
-## 演習
+## Exercises
 
-1. `enum HttpMethod` を作り、`Get` と `Post` だけを表す。
-2. `HttpMethod` から文字列を返す `render` を pattern matching で書く。
-3. `parseHttpMethod` を `Either[String, HttpMethod]` で書く。
-4. `Delete` を enum に追加し、未対応の pattern match を compiler に見つけさせる。
+1. Define `enum HttpMethod` with only `Get` and `Post`.
+2. Render it as a string with pattern matching.
+3. Write `parseHttpMethod` as `Either[String, HttpMethod]`.
+4. Add `Delete` and let the compiler find the now-incomplete match.
 
-実行は次です。
+Run everything with:
 
 ```console
 $ nix develop --command sbt verify
 ```
 
-この章の目的は Scala の短い書き方ではありません。「無効な protocol state を型で表せないようにする」という設計方向を掴むことです。
-
+The design objective is not terse Scala. It is making invalid protocol states
+difficult or impossible to represent.

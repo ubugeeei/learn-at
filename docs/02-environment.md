@@ -1,21 +1,24 @@
-# 02: Nix で学習環境を作る
+# 02: Build the environment with Nix
 
-## この章のゴール
+## Goal
 
-OS に JDK、Scala、sbt を個別インストールせず、この repository が固定した同じ環境で compile と test を実行します。
+Compile and test in the repository-pinned environment without installing the
+JDK, Scala, or sbt independently on the host OS.
 
-## なぜ Nix を使うのか
+## Why Nix
 
-Scala source だけを固定しても、JDK と build tool が人ごとに違えば再現できません。この教材では次の二段階で固定します。
+Pinning only Scala source is not reproducible when developers use different
+JDKs and build tools. This guide pins two layers:
 
-- `flake.lock`: Nixpkgs revision、JDK 21、sbt package
-- `project/build.properties` と `build.sbt`: sbt と Scala 3 の version
+- `flake.lock`: the Nixpkgs revision, JDK 21, and sbt package;
+- `project/build.properties` and `build.sbt`: sbt and Scala 3 versions.
 
-sbt が Scala compiler を取得するため、global な `scala` command は使いません。
+sbt obtains the Scala compiler, so the project does not use a global `scala`
+command.
 
-## 環境に入る
+## Enter the environment
 
-flake を利用できる Nix が必要です。repository root で次を実行します。
+Install a Nix version with flakes, then run from the repository root:
 
 ```console
 $ nix develop
@@ -24,62 +27,69 @@ $ sbt --version
 $ sbt verify
 ```
 
-一回だけ command を実行する場合は shell に入らなくても構いません。
+For one command, entering an interactive shell is unnecessary:
 
 ```console
 $ nix develop --command sbt verify
 ```
 
-direnv と nix-direnv を既に使っている場合は、同梱の `.envrc` を許可できます。
+If you already use direnv and nix-direnv, allow the included `.envrc`:
 
 ```console
 $ direnv allow
 ```
 
-direnv は任意です。教材の command は常に `nix develop --command ...` でも実行できます。
+direnv is optional. Every guide command also works through
+`nix develop --command ...`.
 
-## project を読む
+## Repository layout
 
 ```text
 .
-├── flake.nix                 JDK と sbt を含む開発 shell
-├── flake.lock                Nixpkgs の固定
-├── build.sbt                 Scala version、compiler option、task
+├── flake.nix                 development shell with JDK and sbt
+├── flake.lock                pinned Nixpkgs input
+├── build.sbt                 Scala version, compiler options, tasks
 ├── project/build.properties  sbt version
-├── src/main/scala            client / PDS / protocol 実装
+├── src/main/scala            client, PDS, and protocol implementation
 ├── src/test/scala            dependency-free test runner
-└── docs                      通読するハンズオン
+└── docs                      sequential hands-on guide
 ```
 
-この教材は test library を追加せず、`learnat.tests.AllTests` を `verify` task から実行します。失敗した assertion は process の exit code を非ゼロにします。CI も同じ `nix develop --command sbt verify` を実行します。
+The project adds no test framework. The `verify` task runs
+`learnat.tests.AllTests`; a failed assertion produces a non-zero process exit.
+CI runs the same `nix develop --command sbt verify` command.
 
-## 最初の観察
+## First observation
 
-`src/main/scala/learnat/Main.scala` の help message を次で表示します。
+Display `Main.scala` help:
 
 ```console
 $ nix develop --command sbt run
 ```
 
-次に compiler が未使用 import を拒否することを確かめます。
+Then prove that the compiler rejects unused imports:
 
-1. `Main.scala` に `import java.time.Instant` を追加する。
-2. `sbt verify` を実行して `-Wunused:all` の error を読む。
-3. import を元に戻し、再度成功させる。
+1. Add `import java.time.Instant` to `Main.scala`.
+2. Run `sbt verify` and inspect the `-Wunused:all` error.
+3. Remove the import and make the suite pass again.
 
-小さな warning を error にするのは、教材中の code と説明が drift するのを早く見つけるためです。
+Warnings are errors so stale code and stale explanations are detected early.
 
-## トラブルシュート
+## Troubleshooting
 
 ### `experimental Nix feature 'flakes' is disabled`
 
-使用中の Nix で `nix-command` と `flakes` を有効にしてください。組織管理の Nix では設定を勝手に変更せず、管理者の手順を優先します。
+Enable `nix-command` and `flakes` for your Nix installation. On an
+organization-managed installation, follow the administrator's procedure rather
+than changing global settings yourself.
 
-### flake に追加した file が見えない
+### A new file is invisible to the flake
 
-Nix は Git repository 内の flake を評価するとき、Git に認識されている file を source として扱います。新規 file を参照する変更では `git status` を確認してください。
+When evaluating a flake inside a Git repository, Nix uses files recognized by
+Git as source input. Check `git status` whenever a flake change references a new
+file.
 
-### dependency download が失敗する
+### Dependency download fails
 
-この project の application dependency はゼロですが、初回の sbt 実行は Scala compiler artifact を取得します。offline 実行は一度取得した後に行ってください。
-
+Application dependencies are zero, but the first sbt run still downloads Scala
+compiler artifacts. Perform offline work only after that initial fetch.

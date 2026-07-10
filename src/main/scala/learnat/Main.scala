@@ -14,13 +14,13 @@ object Main:
 
   private def printHelp(): Unit =
     println(
-      """learn-at — AT ProtocolをScala 3で理解する参照実装
+      """learn-at — understand AT Protocol by implementing it in Scala 3
         |
         |usage:
         |  learn-at help
         |  learn-at pds [port]
         |  learn-at client <get|list|post|export> ...
         |
-        |ハンズオンは docs/00-learning-path.md から始めてください。
+        |Start the hands-on guide at docs/00-learning-path.md.
         |""".stripMargin
     )

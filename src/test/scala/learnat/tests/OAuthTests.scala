@@ -186,8 +186,8 @@ object OAuthTests:
       isLeft(DpopVerifier.verify(proof, "POST", target, Some("nonce"), None, now + 1000))
 
       val segments = proof.split("\\.", -1)
-      val changed = if segments(2).last == 'A' then 'B' else 'A'
-      val tampered = s"${segments(0)}.${segments(1)}.${segments(2).dropRight(1)}$changed"
+      val changed = if segments(2).head == 'A' then 'B' else 'A'
+      val tampered = s"${segments(0)}.${segments(1)}.$changed${segments(2).drop(1)}"
       isLeft(DpopVerifier.verify(tampered, "POST", target, Some("nonce"), None, now))
     }
 

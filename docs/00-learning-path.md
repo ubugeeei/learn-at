@@ -91,7 +91,7 @@ incremental updates, and full resynchronization after a gap.
 
 ### Phase 7: Delegate authority safely
 
-- 17: From legacy sessions to OAuth
+- [17: From legacy sessions to OAuth](17-oauth.md)
 
 The legacy `createSession` endpoint comes first for teaching, but the final
 user-facing client target is the [AT Protocol OAuth profile](https://atproto.com/specs/oauth).

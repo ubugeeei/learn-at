@@ -49,7 +49,8 @@ moderation UI a PDS responsibility.
 - Lexicon data parsing and validation;
 - CAR and repository-signature verification;
 - full resynchronization and event-frame/WebSocket consumer;
-- OAuth primitives, full redirect flow, durable cursor recovery, and automatic
+- OAuth metadata, PKCE/PAR/callback/token models, and DPoP proof primitives;
+- live OAuth HTTP/browser orchestration, durable cursor recovery, and automatic
   reconnect tracked separately as they are implemented.
 
 ### Why this reference alone is not production-ready

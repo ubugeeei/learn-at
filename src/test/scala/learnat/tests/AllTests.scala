@@ -10,4 +10,5 @@ object AllTests:
     IdentityTests.run()
     IpldTests.run()
     CarTests.run()
+    MstTests.run()
     println(s"${TestKit.count} tests passed")

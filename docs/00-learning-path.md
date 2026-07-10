@@ -48,7 +48,7 @@
 ### Phase 2: account からサーバーを発見する
 
 - [07: handle と DID の双方向検証](07-identity.md)
-- 08: Lexicon と schema-driven API
+- [08: Lexicon and schema-driven validation](08-lexicon.md)
 
 入力された handle をそのまま URL として信頼してはいけない理由と、DID document から PDS endpoint と署名鍵を得る流れを実装します。
 

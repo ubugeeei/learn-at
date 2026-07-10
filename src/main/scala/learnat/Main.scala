@@ -6,6 +6,7 @@ object Main:
     command match
       case "help" => printHelp()
       case "pds" => learnat.pds.LocalPdsMain.main(args.drop(1))
+      case "client" => learnat.client.ClientMain.main(args.drop(1))
       case other =>
         Console.err.println(s"unknown command: $other")
         printHelp()
@@ -18,6 +19,7 @@ object Main:
         |usage:
         |  learn-at help
         |  learn-at pds [port]
+        |  learn-at client <get|list|post|export> ...
         |
         |ハンズオンは docs/00-learning-path.md から始めてください。
         |""".stripMargin

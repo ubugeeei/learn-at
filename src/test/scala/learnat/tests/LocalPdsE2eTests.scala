@@ -1,11 +1,16 @@
 package learnat.tests
 
 import java.net.URI
+import java.io.ByteArrayOutputStream
+import java.io.PrintStream
+import java.nio.charset.StandardCharsets
 import learnat.client.AtpClient
+import learnat.client.ClientMain
 import learnat.identity.IdentityResolver
 import learnat.identity.IdentityResolverConfig
 import learnat.identity.JdkIdentityNetwork
 import learnat.ipld.Ipld
+import learnat.json.Json
 import learnat.pds.LocalPds
 import learnat.pds.LocalPdsConfig
 import learnat.repo.RepositoryVerifier
@@ -96,6 +101,30 @@ object LocalPdsE2eTests:
         assert(pds.service.getPort > 0)
         assert(pds.service != URI.create("http://localhost:0"))
       }
+
+      test("runs the post and list CLI commands without putting passwords in argv") {
+        val output = ByteArrayOutputStream()
+        val errors = ByteArrayOutputStream()
+        val postStatus = ClientMain.run(
+          Array("post", pds.service.toString, handle.value, collection.value, "from the CLI"),
+          Map("LEARN_AT_PASSWORD" -> "test-password"),
+          PrintStream(output),
+          PrintStream(errors)
+        )
+        equal(postStatus, 0)
+        assert(Json.parse(output.toString(StandardCharsets.UTF_8)).isRight)
+
+        output.reset()
+        val listStatus = ClientMain.run(
+          Array("list", pds.service.toString, pds.did.value, collection.value),
+          Map.empty,
+          PrintStream(output),
+          PrintStream(errors)
+        )
+        equal(listStatus, 0)
+        val listed = Json.parse(output.toString(StandardCharsets.UTF_8)).toOption.get
+        assert(listed.field("records").flatMap(_.asArray).exists(_.nonEmpty))
+      }
     }
 
   private def withPds(body: learnat.pds.RunningLocalPds => Unit): Unit =
@@ -110,4 +139,3 @@ object LocalPdsE2eTests:
     "text" -> Ipld.Text(text),
     "createdAt" -> Ipld.Text("2026-07-10T00:00:00.000Z")
   )
-

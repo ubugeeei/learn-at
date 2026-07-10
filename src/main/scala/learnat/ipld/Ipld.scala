@@ -180,6 +180,32 @@ object DagCbor:
         if decoder.atEnd then Right(decoded) else Left(IpldError("trailing bytes after DAG-CBOR value", Some(decoder.offset)))
       }
 
+  /**
+   * Decodes a concatenated sequence of canonical DAG-CBOR values.
+   * Event-stream frames use this form for a header followed by a body.
+   */
+  def decodeSequence(
+      bytes: Array[Byte],
+      limits: Limits = Limits(),
+      maxItems: Int = 100
+  ): Either[IpldError, Vector[Ipld]] =
+    if bytes.length > limits.maxBytes then Left(IpldError(s"DAG-CBOR input exceeds ${limits.maxBytes} bytes"))
+    else if maxItems < 1 then Left(IpldError("DAG-CBOR sequence maxItems must be positive"))
+    else
+      val decoder = Decoder(bytes, limits)
+      val values = Vector.newBuilder[Ipld]
+      var count = 0
+      var failure: Option[IpldError] = None
+      while !decoder.atEnd && failure.isEmpty do
+        if count >= maxItems then failure = Some(IpldError(s"DAG-CBOR sequence exceeds $maxItems items", Some(decoder.offset)))
+        else
+          decoder.value(1) match
+            case Right(value) =>
+              values += value
+              count += 1
+            case Left(error) => failure = Some(error)
+      failure.toLeft(values.result())
+
   private def encodeValue(value: Ipld, out: ByteArrayOutputStream): Either[IpldError, Unit] = value match
     case Ipld.Null =>
       out.write(0xf6)

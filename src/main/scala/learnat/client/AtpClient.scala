@@ -14,6 +14,7 @@ import learnat.syntax.Did
 import learnat.syntax.Handle
 import learnat.syntax.Nsid
 import learnat.syntax.RecordKey
+import learnat.syntax.Tid
 import learnat.xrpc.HttpTransport
 import learnat.xrpc.JdkHttpTransport
 import learnat.xrpc.XrpcClient
@@ -34,6 +35,9 @@ final case class RecordWriteResult(uri: AtUri, cid: Cid, commitCid: Option[Cid],
 
 /** Paginated records returned by `com.atproto.repo.listRecords`. */
 final case class RecordPage(records: Vector[RecordView], cursor: Option[String])
+
+/** Current repository commit checkpoint returned by the sync API. */
+final case class LatestCommit(cid: Cid, revision: Tid)
 
 /**
  * Dependency-light AT Protocol client for identity-independent PDS calls.
@@ -83,6 +87,17 @@ final class AtpClient private (val service: URI, private val xrpc: XrpcClient):
       xrpc.queryBytes(method, Vector("did" -> did.value), accept = "application/vnd.ipld.car")
         .left.map(fromXrpc)
         .map(_.body)
+    }
+
+  /** Reads the PDS checkpoint used to avoid unnecessary full repository downloads. */
+  def getLatestCommit(did: Did): Either[ClientError, LatestCommit] =
+    callQuery("com.atproto.sync.getLatestCommit", Vector("did" -> did.value), None).flatMap { json =>
+      for
+        cidText <- stringField(json, "cid")
+        cid <- Cid.parse(cidText).left.map(error => ClientError(error.toString))
+        revText <- stringField(json, "rev")
+        revision <- Tid.parse(revText).left.map(error => ClientError(error.toString))
+      yield LatestCommit(cid, revision)
     }
 
   private[client] def procedure(method: String, input: Json, token: String): Either[ClientError, Json] =
@@ -228,4 +243,3 @@ final case class AuthenticatedAtpClient(client: AtpClient, session: LegacySessio
         handle <- Handle.parse(handleText).left.map(error => ClientError(error.toString))
       yield session.copy(did = did, handle = handle)
     }
-

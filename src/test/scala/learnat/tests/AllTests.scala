@@ -18,4 +18,5 @@ object AllTests:
     AuthTests.run()
     LocalPdsE2eTests.run()
     LocalPdsPersistenceTests.run()
+    SyncTests.run()
     println(s"${TestKit.count} tests passed")

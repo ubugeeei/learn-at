@@ -56,4 +56,14 @@ object IpldTests:
       equal(value, ByteString(Array[Byte](1, 2, 3)))
     }
 
+    test("decodes concatenated canonical values for event streams") {
+      val first = DagCbor.encode(obj("op" -> Integer(1))).toOption.get
+      val second = DagCbor.encode(obj("seq" -> Integer(2))).toOption.get
+      equal(
+        DagCbor.decodeSequence(first ++ second),
+        Right(Vector(obj("op" -> Integer(1)), obj("seq" -> Integer(2))))
+      )
+      isLeft(DagCbor.decodeSequence(first ++ second, maxItems = 1))
+    }
+
   private def hex(bytes: Array[Byte]): String = bytes.map(value => f"${value & 0xff}%02x").mkString

@@ -9,6 +9,7 @@ sync mechanisms.
 Implementation:
 
 - `src/learnat/sync/Sync.scala`
+- `src/learnat/sync/CursorStore.scala`
 - `src/learnat/ipld/Ipld.scala`
 - `src/learnat/client/AtpClient.scala`
 
@@ -124,6 +125,30 @@ cursor write and data write would permanently skip that event. Either commit
 both in one storage transaction or make event application idempotent and write
 the cursor last.
 
+## Durable at-least-once checkpoint
+
+`CheckpointedFrameHandler` implements the safe ordering used by a consumer:
+
+```mermaid
+flowchart LR
+  F["decoded frame"] --> S["validate non-negative seq"]
+  S --> O["require seq newer than saved cursor"]
+  O --> A["apply message"]
+  A --> C["atomically replace cursor file"]
+  A -->|"failure"| OLD["leave old cursor"]
+  C -->|"failure"| REPLAY["reconnect from old cursor<br/>message may replay"]
+```
+
+`FileCursorStore` writes one non-negative base-10 sequence to a temporary file
+and then renames it over the checkpoint. It rejects corrupt and oversized state.
+`ATOMIC_MOVE` is used when the filesystem supports it.
+
+The ordering chooses at-least-once delivery. It avoids event loss: failed
+application never advances the cursor. If application succeeds but the cursor
+write fails, the event can be delivered again after restart. Therefore the
+application callback must be idempotent, or its materialized state and cursor
+must share a stronger external transaction. Tests cover both crash boundaries.
+
 ## Exercises
 
 1. Change one byte in an exported CAR and confirm the mirror keeps its previous
@@ -133,17 +158,18 @@ the cursor last.
 3. Feed `EventStreamCodec` one, two, and three concatenated CBOR values.
 4. Add exponential backoff with jitter and a cancellation handle around
    `FirehoseClient`.
-5. Implement a durable cursor store, then write a crash test for each boundary
-   between decode, apply, and cursor persistence.
+5. Replace the file checkpoint with a database transaction shared by an
+   idempotent materialized view.
 6. Add the local PDS WebSocket producer and test reconnecting from a cursor.
 
 ## What is still missing
 
-This chapter provides a verified full-repository mirror and the real WebSocket
-consumer/framing layer. It does not yet implement incremental commit semantics,
-blob transfer, local Relay behavior, cursor retention, backpressure queues, or
-the local PDS firehose producer. Those omissions are explicit: a callback that
-can decode bytes is not yet a durable indexing service.
+This chapter provides a verified full-repository mirror, real WebSocket
+consumer/framing, and durable at-least-once cursor checkpoint. It does not yet
+implement incremental commit semantics, blob transfer, local Relay behavior,
+server-side cursor retention, backpressure queues, or the local PDS firehose
+producer. Those omissions are explicit: durable receipt alone is not yet a
+complete indexing service.
 
 ## Specifications
 

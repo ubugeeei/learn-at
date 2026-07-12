@@ -22,4 +22,5 @@ object AllTests:
     LocalPdsE2eTests.run()
     LocalPdsPersistenceTests.run()
     SyncTests.run()
+    CursorStoreTests.run()
     println(s"${TestKit.count} tests passed")

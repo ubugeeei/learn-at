@@ -62,7 +62,7 @@ flowchart LR
 | P-256 and signed repository | `13-signed-repository.md` | `crypto/P256.scala`, `repo/Repository.scala` | official crypto and repository tests | covered |
 | typed client and CLI | `14-client.md` | `client/` | adjacent CLI tests and real-socket PDS E2E tests | covered |
 | persistent local PDS | `15-local-pds.md` | `pds/` | auth, persistence, corruption, and E2E tests | covered for one account |
-| full-CAR mirror and event decoding | `16-sync.md` | `sync/Sync.scala` | `sync/Sync.test.scala` | covered; producer excluded below |
+| full-CAR mirror, event decoding, durable cursor | `16-sync.md` | `sync/Sync.scala`, `sync/CursorStore.scala` | mirror, framing, corruption, and crash-boundary tests | covered; producer excluded below |
 | OAuth/DPoP protocol primitives | `17-oauth.md` | `oauth/` | discovery, binding, replay, nonce, and signature tests | covered as primitives |
 | federation roles and lab | `18-federation.md` | two-PDS isolation and sync components | PDS E2E and sync suites | covered as a lab |
 | production review | `19-production-readiness.md` | evidence checklist, not a deployment claim | CI is evidence only for code-level gates | covered as an assessment |

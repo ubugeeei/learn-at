@@ -1,8 +1,9 @@
 package learnat.pds
 
-import com.sun.net.httpserver.HttpExchange
-import com.sun.net.httpserver.HttpHandler
-import com.sun.net.httpserver.HttpServer
+import io.undertow.Undertow
+import io.undertow.server.HttpHandler
+import io.undertow.server.HttpServerExchange
+import io.undertow.util.Headers
 import java.net.InetSocketAddress
 import java.net.URI
 import java.net.URLDecoder
@@ -10,8 +11,6 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 import java.util.Arrays
 import java.util.concurrent.CountDownLatch
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 import learnat.crypto.P256KeyPair
 import learnat.crypto.P256PublicKey
 import learnat.ipld.DagJson
@@ -54,8 +53,7 @@ final case class LocalPdsConfig(
  * signing private key stays inside the PDS state.
  */
 final class RunningLocalPds private[pds] (
-    private val server: HttpServer,
-    private val executor: ExecutorService,
+    private val server: Undertow,
     private val state: LocalPdsState,
     val service: URI,
     val did: Did,
@@ -73,8 +71,7 @@ final class RunningLocalPds private[pds] (
 
   /** Stops accepting requests and interrupts the bounded worker pool. */
   override def close(): Unit =
-    server.stop(0)
-    executor.shutdownNow()
+    server.stop()
     ()
 
 /** Starts the dependency-free local PDS used by the client/server hands-on. */
@@ -88,12 +85,15 @@ object LocalPds:
     else if config.maxBlobBytes < 1 then Left(LocalPdsError("maxBlobBytes must be positive"))
     else if config.eventRetention < 1 then Left(LocalPdsError("eventRetention must be positive"))
     else
-      var server: Option[HttpServer] = None
-      var executor: Option[ExecutorService] = None
+      var server: Option[Undertow] = None
       try
-        val createdServer = HttpServer.create(InetSocketAddress(config.bindAddress, config.port), 0)
+        val routes = new LocalPdsRoutes(config.maxJsonBodyBytes, config.maxBlobBytes)
+        val createdServer = Undertow.builder().addHttpListener(config.port, config.bindAddress)
+          .setWorkerThreads(config.workerThreads).setHandler(new UndertowPdsHandler(routes)).build()
+        createdServer.start()
         server = Some(createdServer)
-        val actualPort = createdServer.getAddress.getPort
+        val actualPort = createdServer.getListenerInfo.get(0).getAddress
+          .asInstanceOf[InetSocketAddress].getPort
         val service = URI.create(s"http://localhost:$actualPort")
         val passwordCopy = config.password.clone()
         val passwordHash =
@@ -137,17 +137,9 @@ object LocalPds:
             blobStore,
             eventLog
           )
-          val createdExecutor = Executors.newFixedThreadPool(config.workerThreads)
-          executor = Some(createdExecutor)
-          createdServer.setExecutor(createdExecutor)
-          createdServer.createContext(
-            "/",
-            LocalPdsHandler(state, config.maxJsonBodyBytes, config.maxBlobBytes)
-          )
-          createdServer.start()
+          routes.attach(state)
           new RunningLocalPds(
             createdServer,
-            createdExecutor,
             state,
             service,
             did,
@@ -155,13 +147,12 @@ object LocalPds:
             signingKey.publicKey
           )
         }.left.map { error =>
-          createdServer.stop(0)
+          createdServer.stop()
           error
         }
       catch
         case error: Exception =>
-          server.foreach(_.stop(0))
-          executor.foreach(_.shutdownNow())
+          server.foreach(_.stop())
           Left(LocalPdsError(s"failed to start local PDS: ${error.getMessage}"))
 
 final private class LocalPdsState(
@@ -284,25 +275,38 @@ private trait PdsHttpExchange:
   def respond(status: Int, contentType: String, bytes: Array[Byte]): Unit
   def close(): Unit
 
-final private class JdkPdsHttpExchange(exchange: HttpExchange) extends PdsHttpExchange:
-  def method: String = exchange.getRequestMethod
-  def uri: URI = exchange.getRequestURI
+final private class UndertowPdsHttpExchange(exchange: HttpServerExchange) extends PdsHttpExchange:
+  def method: String = exchange.getRequestMethod.toString
+  def uri: URI =
+    val query = Option(exchange.getQueryString).filter(_.nonEmpty).fold("")(value => s"?$value")
+    URI.create(s"${exchange.getRequestURI}$query")
   def requestHeader(name: String): Option[String] =
     Option(exchange.getRequestHeaders.getFirst(name))
-  def readBody(maximumBytes: Int): Array[Byte] = exchange.getRequestBody.readNBytes(maximumBytes)
+  def readBody(maximumBytes: Int): Array[Byte] =
+    exchange.startBlocking()
+    exchange.getInputStream.readNBytes(maximumBytes)
   def respond(status: Int, contentType: String, bytes: Array[Byte]): Unit =
-    exchange.getResponseHeaders.set("Content-Type", contentType)
-    exchange.getResponseHeaders.set("Cache-Control", "no-store")
-    exchange.sendResponseHeaders(status, bytes.length.toLong)
-    exchange.getResponseBody.write(bytes)
-  def close(): Unit = exchange.close()
+    exchange.setStatusCode(status)
+    exchange.getResponseHeaders.put(Headers.CONTENT_TYPE, contentType)
+    exchange.getResponseHeaders.put(Headers.CACHE_CONTROL, "no-store")
+    exchange.startBlocking()
+    exchange.getOutputStream.write(bytes)
+  def close(): Unit = exchange.endExchange()
 
-final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int, maxBlobBytes: Int)
-    extends HttpHandler:
-  override def handle(exchange: HttpExchange): Unit =
-    handleExchange(new JdkPdsHttpExchange(exchange))
+final private class UndertowPdsHandler(routes: LocalPdsRoutes) extends HttpHandler:
+  override def handleRequest(exchange: HttpServerExchange): Unit =
+    if exchange.isInIoThread then exchange.dispatch(this)
+    else routes.handle(new UndertowPdsHttpExchange(exchange))
 
-  private def handleExchange(exchange: PdsHttpExchange): Unit =
+final private class LocalPdsRoutes(maxJsonBodyBytes: Int, maxBlobBytes: Int):
+  @volatile
+  private var stateValue: Option[LocalPdsState] = None
+
+  def attach(state: LocalPdsState): Unit = stateValue = Some(state)
+  private def state: LocalPdsState = stateValue
+    .getOrElse(throw IllegalStateException("local PDS routes are not initialized"))
+
+  def handle(exchange: PdsHttpExchange): Unit =
     try
       val response = route(exchange) match
         case Right(value)  => value

@@ -1,5 +1,5 @@
 {
-  description = "Dependency-free Scala 3 AT Protocol hands-on";
+  description = "Scala 3 AT Protocol hands-on reference implementation";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -29,4 +29,3 @@
       formatter = forAllSystems (pkgs: pkgs.nixfmt-tree);
     };
 }
-

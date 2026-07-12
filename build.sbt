@@ -10,6 +10,7 @@ lazy val root = project
   .in(file("."))
   .settings(
     name := "learn-at",
+    libraryDependencies += "io.undertow" % "undertow-core" % "2.4.2.Final",
     Compile / unmanagedSources :=
       ((baseDirectory.value / "src") ** "*.scala").get.filterNot(_.getName.endsWith(".test.scala")),
     Compile / run / mainClass := Some("learnat.LearnAt"),

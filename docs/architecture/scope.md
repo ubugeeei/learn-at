@@ -11,12 +11,13 @@ The evidence for each completed reference-scope capability is indexed in the
 
 ## Dependency policy
 
-Runtime and test dependencies are zero by default.
+Protocol-core dependencies are zero by default. Network plumbing may use a
+small reviewed library when the JDK cannot implement the required wire contract.
 
 | Area | Choice | Reason |
 | --- | --- | --- |
 | HTTP client | `java.net.http.HttpClient` | reimplementing HTTP is out of scope |
-| HTTP server | JDK `HttpServer` | keep routing/XRPC visible |
+| HTTP/WebSocket server | Undertow Core | JDK 21 `HttpServer` cannot retain streams after a 101 upgrade; routing remains repository-owned |
 | JSON | custom | expose Lexicon values and error handling |
 | DNS | JNDI DNS provider | wire-level DNS is not the identity lesson |
 | cryptographic primitives | JCA | custom primitives are unsafe |

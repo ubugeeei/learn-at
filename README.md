@@ -55,7 +55,9 @@ without shipping test code in the application.
 ## Run it
 
 The development environment is a Nix flake. You do not need to install the JDK,
-Scala, or sbt separately. Application code has no runtime dependencies.
+Scala, or sbt separately. Protocol codecs remain implemented in the repository;
+the local server uses Undertow Core for standards-compliant HTTP/WebSocket
+transport instead of reimplementing a network server.
 
 ```console
 $ nix develop --command sbt verify

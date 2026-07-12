@@ -254,7 +254,7 @@ threat model, measured load test, or verified artifact is evidence.
 Safe learning use:
 
 - Nix-reproducible loopback environment;
-- dependency-free typed client and single-account local PDS;
+- dependency-light typed client and single-account local PDS;
 - persistent development key/records/revision;
 - strict codecs, official fixtures, signed repository, CAR export/verification;
 - full-snapshot synchronization and event consumer;

@@ -20,8 +20,24 @@ import learnat.xrpc.JdkHttpTransport
 import learnat.xrpc.XrpcClient
 import learnat.xrpc.XrpcError
 
-/** A typed client-side failure above the raw XRPC transport. */
-final case class ClientError(message: String):
+/** Stable failure categories used by callers to choose reporting and retry policy. */
+enum ClientErrorKind:
+  case Local, Configuration, Transport, Protocol, Remote
+
+/**
+ * A typed client-side failure retaining remote HTTP/XRPC fields when available.
+ *
+ * `retryable` is deliberately conservative: transport failures, HTTP 429, and HTTP 5xx may be
+ * retried by a bounded policy. Validation, authentication, and malformed successful responses are
+ * not automatically retryable.
+ */
+final case class ClientError(
+    message: String,
+    kind: ClientErrorKind = ClientErrorKind.Local,
+    status: Option[Int] = None,
+    code: Option[String] = None,
+    retryable: Boolean = false
+):
   override def toString: String = message
 
 /** Legacy session data returned by a PDS. OAuth sessions are modeled separately. */
@@ -138,7 +154,7 @@ final class AtpClient private (val service: URI, private val xrpc: XrpcClient):
   private def nsid(value: String): Either[ClientError, Nsid] = Nsid.parse(value).left
     .map(error => ClientError(error.toString))
 
-  private def fromXrpc(error: XrpcError): ClientError = ClientError(error.description)
+  private def fromXrpc(error: XrpcError): ClientError = ClientError.fromXrpc(error)
 
   private[client] def decodeSession(json: Json): Either[ClientError, LegacySession] =
     for
@@ -216,7 +232,7 @@ object AtpClient:
       service: URI,
       transport: HttpTransport = JdkHttpTransport.default
   ): Either[ClientError, AtpClient] = XrpcClient.create(service, transport).left
-    .map(error => ClientError(error.description)).map(new AtpClient(service, _))
+    .map(ClientError.fromXrpc).map(new AtpClient(service, _))
 
   /** Resolves an account and creates a client for the PDS in its DID document. */
   def discover(
@@ -226,6 +242,24 @@ object AtpClient:
   ): Either[ClientError, (AtpClient, ResolvedIdentity)] = resolver.resolve(identifier).left
     .map(error => ClientError(error.description))
     .flatMap(identity => create(identity.pds, transport).map(_ -> identity))
+
+object ClientError:
+  private[client] def fromXrpc(error: XrpcError): ClientError = error match
+    case XrpcError.InvalidService(message) =>
+      ClientError(message, kind = ClientErrorKind.Configuration)
+    case XrpcError.Transport(message, _) =>
+      ClientError(message, kind = ClientErrorKind.Transport, retryable = true)
+    case XrpcError.ResponseTooLarge(_, _) =>
+      ClientError(error.description, kind = ClientErrorKind.Protocol)
+    case XrpcError.InvalidResponse(status, _) =>
+      ClientError(error.description, kind = ClientErrorKind.Protocol, status = Some(status))
+    case XrpcError.Remote(status, code, _) => ClientError(
+        error.description,
+        kind = ClientErrorKind.Remote,
+        status = Some(status),
+        code = Some(code),
+        retryable = status == 429 || status >= 500
+      )
 
 /** Legacy-authenticated record mutation client. */
 final case class AuthenticatedAtpClient(client: AtpClient, session: LegacySession):

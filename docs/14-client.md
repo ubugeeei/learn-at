@@ -157,7 +157,21 @@ The dynamic port in a `did:web:localhost%3A...` DID must match the server. Port 
 
 ## Error model
 
-Raw XRPC errors are converted to `ClientError`, while typed decoders still reject malformed DID, handle, AT URI, CID, JSON, and DAG-JSON values. A 2xx response with the wrong schema is not success.
+Raw XRPC errors become structured `ClientError` values instead of flattened
+strings. Callers retain:
+
+- `kind`: local, configuration, transport, protocol, or remote;
+- HTTP `status` when a response exists;
+- the stable remote XRPC `code` such as `RateLimitExceeded`;
+- a conservative `retryable` decision.
+
+Transport failures, HTTP 429, and HTTP 5xx are retryable candidates. Validation,
+authentication, and malformed successful responses are not. `retryable` does
+not perform a retry or promise success; callers must still use bounded attempts,
+backoff, jitter, cancellation, and endpoint idempotency rules.
+
+Typed decoders reject malformed DID, handle, AT URI, CID, JSON, and DAG-JSON
+values. A 2xx response with the wrong schema is a protocol error, not success.
 
 The CLI returns status 2 for usage, validation, network, remote, and file-write errors. Library callers should inspect the typed lower-level errors when they need retry policy.
 
@@ -181,5 +195,6 @@ $ nix develop --command sbt verify
 
 1. Add a `reverse` option to the CLI list command.
 2. Add an export command that immediately verifies the CAR before writing it.
-3. Preserve `XrpcError.Remote` fields in `ClientError` so retry policy can distinguish 400, 401, 429, and 5xx.
+3. Add bounded exponential backoff with jitter for idempotent queries when
+   `ClientError.retryable` is true.
 4. Add an OAuth-backed authenticated client without changing public read methods.

@@ -10,7 +10,8 @@ import learnat.tests.TestKit.*
 object MstTests:
   // Values and expected roots are pinned from the official @atproto/repo
   // "MST Interop Known Maps" suite at the commit recorded in README.md.
-  private val interopValue = Cid.parse("bafyreie5cvv4h45feadgeuwhbcutmh6t2ceseocckahdoe6uat64zmz454").toOption.get
+  private val interopValue = Cid
+    .parse("bafyreie5cvv4h45feadgeuwhbcutmh6t2ceseocckahdoe6uat64zmz454").toOption.get
   private val entries = Vector(
     "com.example.note/3jzfcijpj2z2a",
     "com.example.note/3jzfcijpj2z2b",
@@ -35,7 +36,10 @@ object MstTests:
       val verified = MstVerifier.verify(built.root, built.blocks)
       assert(verified.isRight, verified)
       equal(verified.map(_.leaves), Right(built.leaves))
-      equal(verified.toOption.get.get("com.example.profile/self"), Some(recordCid("com.example.profile/self")))
+      equal(
+        verified.toOption.get.get("com.example.profile/self"),
+        Some(recordCid("com.example.profile/self"))
+      )
     }
 
     test("builds the canonical empty tree") {
@@ -65,8 +69,10 @@ object MstTests:
     }
 
     test("matches official trivial and layer-two root fixtures") {
-      val trivial = Mst.build(Vector("com.example.record/3jqfcqzm3fo2j" -> interopValue)).toOption.get
-      val layerTwo = Mst.build(Vector("com.example.record/3jqfcqzm3fx2j" -> interopValue)).toOption.get
+      val trivial = Mst.build(Vector("com.example.record/3jqfcqzm3fo2j" -> interopValue)).toOption
+        .get
+      val layerTwo = Mst.build(Vector("com.example.record/3jqfcqzm3fx2j" -> interopValue)).toOption
+        .get
       equal(trivial.root.toString, "bafyreibj4lsc3aqnrvphp5xmrnfoorvru4wynt6lwidqbm2623a6tatzdu")
       equal(layerTwo.root.toString, "bafyreih7wfei65pxzhauoibu3ls7jgmkju4bspy4t2ha2qdjnzqvoy33ai")
     }

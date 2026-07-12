@@ -51,3 +51,27 @@ uses filenames to retain the normal application/test classpath separation:
 Run the complete executable narrative with `nix develop --command sbt verify`.
 Start the program with `nix develop --command sbt run`; its primary entry point
 is `learnat/LearnAt.scala`.
+
+## Documentation and test conventions
+
+Public types and operations use Scaladoc to explain their protocol contract,
+failure behavior, limits, and trust boundary. Comments should not restate a
+method name or translate one line of code into English. A useful comment answers
+at least one question the type signature cannot answer: which bytes are
+canonical, which input is untrusted, what is authenticated, or why a limit
+exists.
+
+Tests use two complementary declarations from `testing/TestKit.test.scala`:
+
+- `test("observable contract") { ... }` for a state transition or multi-step
+  protocol scenario;
+- `cases("shared contract")("fixture name" -> input, ...)` for syntax, codec,
+  and interoperability tables.
+
+Every row in `cases` is an independent reported test. Avoid burying fixtures in
+an unlabelled loop: a failing CI log must identify the violated contract and
+the exact fixture without opening the source.
+
+Scalafmt owns whitespace and wrapping. Run `sbt scalafmtAll`; do not hand-align
+code in a way the formatter will undo. `sbt verify` checks formatting before it
+compiles and executes tests.

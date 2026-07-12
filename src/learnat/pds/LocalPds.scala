@@ -43,8 +43,8 @@ final case class LocalPdsConfig(
 /**
  * A running single-account PDS bound to a loopback HTTP server.
  *
- * This handle owns the server lifecycle and exposes only public identity
- * material. The repository signing private key stays inside the PDS state.
+ * This handle owns the server lifecycle and exposes only public identity material. The repository
+ * signing private key stays inside the PDS state.
  */
 final class RunningLocalPds private[pds] (
     private val server: HttpServer,
@@ -67,9 +67,11 @@ final class RunningLocalPds private[pds] (
 /** Starts the dependency-free local PDS used by the client/server hands-on. */
 object LocalPds:
   def start(config: LocalPdsConfig): Either[LocalPdsError, RunningLocalPds] =
-    if config.port < 0 || config.port > 65535 then Left(LocalPdsError("port must be between 0 and 65535"))
+    if config.port < 0 || config.port > 65535 then
+      Left(LocalPdsError("port must be between 0 and 65535"))
     else if config.workerThreads < 1 then Left(LocalPdsError("workerThreads must be positive"))
-    else if config.maxJsonBodyBytes < 1 then Left(LocalPdsError("maxJsonBodyBytes must be positive"))
+    else if config.maxJsonBodyBytes < 1 then
+      Left(LocalPdsError("maxJsonBodyBytes must be positive"))
     else
       var server: Option[HttpServer] = None
       var executor: Option[ExecutorService] = None
@@ -79,26 +81,28 @@ object LocalPds:
         val actualPort = createdServer.getAddress.getPort
         val service = URI.create(s"http://localhost:$actualPort")
         val passwordCopy = config.password.clone()
-        val passwordHash = try PasswordHash.create(passwordCopy) finally Arrays.fill(passwordCopy, '\u0000')
+        val passwordHash =
+          try PasswordHash.create(passwordCopy)
+          finally Arrays.fill(passwordCopy, '\u0000')
         val store = config.dataDirectory.map(LocalPdsStore(_))
-        val initialized = for
-          did <- Did.parse(s"did:web:localhost%3A$actualPort").left.map(error => LocalPdsError(error.toString))
-          restored <- store.fold[Either[LocalPdsError, Option[StoredPdsState]]](Right(None))(_.load(did))
-          signingKey <- restored match
-            case Some(value) => Right(value.signingKey)
-            case None => P256KeyPair.generate().left.map(error => LocalPdsError(error.toString))
-          verifiedPassword <- passwordHash.left.map(error => LocalPdsError(error.toString))
-          initialRecords = restored.fold(Vector.empty[RepositoryRecord])(_.records)
-          previousRevision = restored.map(_.lastRevision)
-          repository <- Repository.create(
-            did,
-            signingKey,
-            TidGenerator.system(),
-            initialRecords,
-            previousRevision
-          ).left.map(error => LocalPdsError(error.toString))
-          _ <- store.fold[Either[LocalPdsError, Unit]](Right(()))(_.save(did, signingKey, repository))
-        yield (did, signingKey, verifiedPassword, repository, store)
+        val initialized =
+          for
+            did <- Did.parse(s"did:web:localhost%3A$actualPort").left
+              .map(error => LocalPdsError(error.toString))
+            restored <- store
+              .fold[Either[LocalPdsError, Option[StoredPdsState]]](Right(None))(_.load(did))
+            signingKey <- restored match
+              case Some(value) => Right(value.signingKey)
+              case None => P256KeyPair.generate().left.map(error => LocalPdsError(error.toString))
+            verifiedPassword <- passwordHash.left.map(error => LocalPdsError(error.toString))
+            initialRecords = restored.fold(Vector.empty[RepositoryRecord])(_.records)
+            previousRevision = restored.map(_.lastRevision)
+            repository <- Repository
+              .create(did, signingKey, TidGenerator.system(), initialRecords, previousRevision).left
+              .map(error => LocalPdsError(error.toString))
+            _ <- store
+              .fold[Either[LocalPdsError, Unit]](Right(()))(_.save(did, signingKey, repository))
+          yield (did, signingKey, verifiedPassword, repository, store)
         initialized.map { (did, signingKey, verifiedPassword, repository, store) =>
           val state = LocalPdsState(
             did,
@@ -116,17 +120,26 @@ object LocalPds:
           createdServer.setExecutor(createdExecutor)
           createdServer.createContext("/", LocalPdsHandler(state, config.maxJsonBodyBytes))
           createdServer.start()
-          new RunningLocalPds(createdServer, createdExecutor, state, service, did, config.handle, signingKey.publicKey)
+          new RunningLocalPds(
+            createdServer,
+            createdExecutor,
+            state,
+            service,
+            did,
+            config.handle,
+            signingKey.publicKey
+          )
         }.left.map { error =>
           createdServer.stop(0)
           error
         }
-      catch case error: Exception =>
-        server.foreach(_.stop(0))
-        executor.foreach(_.shutdownNow())
-        Left(LocalPdsError(s"failed to start local PDS: ${error.getMessage}"))
+      catch
+        case error: Exception =>
+          server.foreach(_.stop(0))
+          executor.foreach(_.shutdownNow())
+          Left(LocalPdsError(s"failed to start local PDS: ${error.getMessage}"))
 
-private final class LocalPdsState(
+final private class LocalPdsState(
     val did: Did,
     val handle: Handle,
     val service: URI,
@@ -141,10 +154,12 @@ private final class LocalPdsState(
 
   def applyWrite(write: RepositoryWrite): Either[PdsFailure, Repository] = synchronized {
     for
-      updated <- repositoryState.applyWrite(write).left.map(error => PdsFailure(400, "InvalidRequest", error.message))
-      _ <- store.fold[Either[PdsFailure, Unit]](Right(()))(
-        _.save(did, signingKey, updated).left.map(error => PdsFailure(500, "InternalServerError", error.message))
-      )
+      updated <- repositoryState.applyWrite(write).left
+        .map(error => PdsFailure(400, "InvalidRequest", error.message))
+      _ <- store
+        .fold[Either[PdsFailure, Unit]](Right(()))(_.save(did, signingKey, updated).left.map(
+          error => PdsFailure(500, "InternalServerError", error.message)
+        ))
     yield
       repositoryState = updated
       updated
@@ -161,56 +176,88 @@ private object LocalPdsState:
       recordKeyGenerator: TidGenerator,
       repository: Repository,
       store: Option[LocalPdsStore]
-  ): LocalPdsState =
-    new LocalPdsState(did, handle, service, signingKey, passwordHash, sessions, recordKeyGenerator, repository, store)
+  ): LocalPdsState = new LocalPdsState(
+    did,
+    handle,
+    service,
+    signingKey,
+    passwordHash,
+    sessions,
+    recordKeyGenerator,
+    repository,
+    store
+  )
 
-private final case class PdsFailure(status: Int, code: String, message: String)
-private final case class PdsResponse(status: Int, contentType: String, bytes: Array[Byte])
+final private case class PdsFailure(status: Int, code: String, message: String)
+final private case class PdsResponse(status: Int, contentType: String, bytes: Array[Byte])
 
 private object PdsResponse:
-  def json(value: Json, status: Int = 200): PdsResponse =
-    PdsResponse(status, "application/json; charset=utf-8", value.render.getBytes(StandardCharsets.UTF_8))
+  def json(value: Json, status: Int = 200): PdsResponse = PdsResponse(
+    status,
+    "application/json; charset=utf-8",
+    value.render.getBytes(StandardCharsets.UTF_8)
+  )
 
   def text(value: String, contentType: String = "text/plain; charset=utf-8"): PdsResponse =
     PdsResponse(200, contentType, value.getBytes(StandardCharsets.UTF_8))
 
-private final class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int) extends HttpHandler:
+final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int)
+    extends HttpHandler:
   override def handle(exchange: HttpExchange): Unit =
     try
       val response = route(exchange) match
-        case Right(value) => value
+        case Right(value)  => value
         case Left(failure) => PdsResponse.json(
-          Json.obj("error" -> Json.Str(failure.code), "message" -> Json.Str(failure.message)),
-          failure.status
-        )
+            Json.obj("error" -> Json.Str(failure.code), "message" -> Json.Str(failure.message)),
+            failure.status
+          )
       send(exchange, response)
     catch
       case error: Exception =>
         error.printStackTrace(Console.err)
-        send(exchange, PdsResponse.json(
-          Json.obj("error" -> Json.Str("InternalServerError"), "message" -> Json.Str("unexpected local PDS error")),
-          500
-        ))
+        send(
+          exchange,
+          PdsResponse.json(
+            Json.obj(
+              "error" -> Json.Str("InternalServerError"),
+              "message" -> Json.Str("unexpected local PDS error")
+            ),
+            500
+          )
+        )
     finally exchange.close()
 
-  private def route(exchange: HttpExchange): Either[PdsFailure, PdsResponse] = exchange.getRequestURI.getPath match
-    case "/.well-known/did.json" => withMethod(exchange, "GET")(Right(PdsResponse.json(didDocument)))
-    case "/.well-known/atproto-did" => withMethod(exchange, "GET")(Right(PdsResponse.text(state.did.value)))
-    case "/xrpc/com.atproto.server.describeServer" => withMethod(exchange, "GET")(describeServer)
-    case "/xrpc/com.atproto.identity.resolveHandle" => withMethod(exchange, "GET")(resolveHandle(exchange))
-    case "/xrpc/com.atproto.server.createSession" => withMethod(exchange, "POST")(createSession(exchange))
-    case "/xrpc/com.atproto.server.getSession" => withMethod(exchange, "GET")(getSession(exchange))
-    case "/xrpc/com.atproto.server.refreshSession" => withMethod(exchange, "POST")(refreshSession(exchange))
-    case "/xrpc/com.atproto.server.deleteSession" => withMethod(exchange, "POST")(deleteSession(exchange))
-    case "/xrpc/com.atproto.repo.getRecord" => withMethod(exchange, "GET")(getRecord(exchange))
-    case "/xrpc/com.atproto.repo.listRecords" => withMethod(exchange, "GET")(listRecords(exchange))
-    case "/xrpc/com.atproto.repo.createRecord" => withMethod(exchange, "POST")(createRecord(exchange))
-    case "/xrpc/com.atproto.repo.putRecord" => withMethod(exchange, "POST")(putRecord(exchange))
-    case "/xrpc/com.atproto.repo.deleteRecord" => withMethod(exchange, "POST")(deleteRecord(exchange))
-    case "/xrpc/com.atproto.repo.describeRepo" => withMethod(exchange, "GET")(describeRepo(exchange))
-    case "/xrpc/com.atproto.sync.getRepo" => withMethod(exchange, "GET")(getRepo(exchange))
-    case "/xrpc/com.atproto.sync.getLatestCommit" => withMethod(exchange, "GET")(getLatestCommit(exchange))
-    case _ => Left(PdsFailure(404, "MethodNotFound", "unknown local PDS endpoint"))
+  private def route(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+    exchange.getRequestURI.getPath match
+      case "/.well-known/did.json" =>
+        withMethod(exchange, "GET")(Right(PdsResponse.json(didDocument)))
+      case "/.well-known/atproto-did" =>
+        withMethod(exchange, "GET")(Right(PdsResponse.text(state.did.value)))
+      case "/xrpc/com.atproto.server.describeServer"  => withMethod(exchange, "GET")(describeServer)
+      case "/xrpc/com.atproto.identity.resolveHandle" =>
+        withMethod(exchange, "GET")(resolveHandle(exchange))
+      case "/xrpc/com.atproto.server.createSession" =>
+        withMethod(exchange, "POST")(createSession(exchange))
+      case "/xrpc/com.atproto.server.getSession" =>
+        withMethod(exchange, "GET")(getSession(exchange))
+      case "/xrpc/com.atproto.server.refreshSession" =>
+        withMethod(exchange, "POST")(refreshSession(exchange))
+      case "/xrpc/com.atproto.server.deleteSession" =>
+        withMethod(exchange, "POST")(deleteSession(exchange))
+      case "/xrpc/com.atproto.repo.getRecord"   => withMethod(exchange, "GET")(getRecord(exchange))
+      case "/xrpc/com.atproto.repo.listRecords" =>
+        withMethod(exchange, "GET")(listRecords(exchange))
+      case "/xrpc/com.atproto.repo.createRecord" =>
+        withMethod(exchange, "POST")(createRecord(exchange))
+      case "/xrpc/com.atproto.repo.putRecord" => withMethod(exchange, "POST")(putRecord(exchange))
+      case "/xrpc/com.atproto.repo.deleteRecord" =>
+        withMethod(exchange, "POST")(deleteRecord(exchange))
+      case "/xrpc/com.atproto.repo.describeRepo" =>
+        withMethod(exchange, "GET")(describeRepo(exchange))
+      case "/xrpc/com.atproto.sync.getRepo" => withMethod(exchange, "GET")(getRepo(exchange))
+      case "/xrpc/com.atproto.sync.getLatestCommit" =>
+        withMethod(exchange, "GET")(getLatestCommit(exchange))
+      case _ => Left(PdsFailure(404, "MethodNotFound", "unknown local PDS endpoint"))
 
   private def describeServer: Either[PdsFailure, PdsResponse] = Right(PdsResponse.json(Json.obj(
     "did" -> Json.Str(state.did.value),
@@ -221,39 +268,55 @@ private final class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int)
   private def resolveHandle(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
     for
       handle <- queryRequired(exchange, "handle")
-      parsed <- Handle.parse(handle).left.map(error => PdsFailure(400, "InvalidRequest", error.toString))
-      _ <- Either.cond(parsed.normalized == state.handle.normalized, (), PdsFailure(400, "HandleNotFound", "handle is not hosted here"))
+      parsed <- Handle.parse(handle).left
+        .map(error => PdsFailure(400, "InvalidRequest", error.toString))
+      _ <- Either.cond(
+        parsed.normalized == state.handle.normalized,
+        (),
+        PdsFailure(400, "HandleNotFound", "handle is not hosted here")
+      )
     yield PdsResponse.json(Json.obj("did" -> Json.Str(state.did.value)))
 
   private def createSession(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
     for
       body <- jsonBody(exchange)
       identifier <- stringField(body, "identifier")
-      _ <- Either.cond(matchesAccount(identifier), (), PdsFailure(401, "AuthenticationRequired", "invalid credentials"))
+      _ <- Either.cond(
+        matchesAccount(identifier),
+        (),
+        PdsFailure(401, "AuthenticationRequired", "invalid credentials")
+      )
       password <- stringField(body, "password")
       passwordChars = password.toCharArray
-      valid = try state.passwordHash.verify(passwordChars) finally Arrays.fill(passwordChars, '\u0000')
+      valid =
+        try state.passwordHash.verify(passwordChars)
+        finally Arrays.fill(passwordChars, '\u0000')
       _ <- Either.cond(valid, (), PdsFailure(401, "AuthenticationRequired", "invalid credentials"))
       tokens = state.sessions.issue(state.did)
     yield PdsResponse.json(sessionJson(tokens))
 
-  private def getSession(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
-    authorizeAccess(exchange).map(_ => PdsResponse.json(Json.obj(
+  private def getSession(exchange: HttpExchange): Either[PdsFailure, PdsResponse] = authorizeAccess(
+    exchange
+  ).map(_ =>
+    PdsResponse.json(Json.obj(
       "did" -> Json.Str(state.did.value),
       "handle" -> Json.Str(state.handle.normalized),
       "active" -> Json.Bool(true)
-    )))
+    ))
+  )
 
   private def refreshSession(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
     for
       token <- bearer(exchange)
-      tokens <- state.sessions.refresh(token).left.map(error => PdsFailure(401, "ExpiredToken", error.message))
+      tokens <- state.sessions.refresh(token).left
+        .map(error => PdsFailure(401, "ExpiredToken", error.message))
     yield PdsResponse.json(sessionJson(tokens))
 
   private def deleteSession(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
     for
       token <- bearer(exchange)
-      _ <- state.sessions.revoke(token).left.map(error => PdsFailure(401, "InvalidToken", error.message))
+      _ <- state.sessions.revoke(token).left
+        .map(error => PdsFailure(401, "InvalidToken", error.message))
     yield PdsResponse.json(Json.obj())
 
   private def getRecord(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
@@ -261,7 +324,8 @@ private final class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int)
       parameters <- repositoryQuery(exchange, requireRecordKey = true)
       (collection, recordKey) = parameters
       repository = state.currentRepository
-      record <- repository.get(collection, recordKey).toRight(PdsFailure(400, "RecordNotFound", "record does not exist"))
+      record <- repository.get(collection, recordKey)
+        .toRight(PdsFailure(400, "RecordNotFound", "record does not exist"))
       view <- recordJson(repository, record)
     yield PdsResponse.json(view)
 
@@ -269,29 +333,37 @@ private final class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int)
     for
       _ <- validateRepoQuery(exchange, "repo")
       collectionText <- queryRequired(exchange, "collection")
-      collection <- Nsid.parse(collectionText).left.map(error => PdsFailure(400, "InvalidRequest", error.toString))
+      collection <- Nsid.parse(collectionText).left
+        .map(error => PdsFailure(400, "InvalidRequest", error.toString))
       limit <- query(exchange).get("limit").flatMap(_.headOption) match
-        case None => Right(50)
+        case None        => Right(50)
         case Some(value) => value.toIntOption.filter(number => number >= 1 && number <= 100)
-          .toRight(PdsFailure(400, "InvalidRequest", "limit must be between 1 and 100"))
+            .toRight(PdsFailure(400, "InvalidRequest", "limit must be between 1 and 100"))
       reverse <- query(exchange).get("reverse").flatMap(_.headOption) match
         case None | Some("false") => Right(false)
-        case Some("true") => Right(true)
+        case Some("true")         => Right(true)
         case Some(_) => Left(PdsFailure(400, "InvalidRequest", "reverse must be true or false"))
       cursor = query(exchange).get("cursor").flatMap(_.headOption)
       repository = state.currentRepository
       matching = repository.records.filter(_.collection == collection).sortBy(_.recordKey.value)
       ordered = if reverse then matching.reverse else matching
-      afterCursor = cursor.fold(ordered)(value => ordered.filter(record => if reverse then record.recordKey.value < value else record.recordKey.value > value))
+      afterCursor = cursor.fold(ordered)(value =>
+        ordered.filter(record =>
+          if reverse then record.recordKey.value < value else record.recordKey.value > value
+        )
+      )
       selected = afterCursor.take(limit)
-      encoded <- selected.foldLeft[Either[PdsFailure, Vector[Json]]](Right(Vector.empty)) { (result, record) =>
-        for
-          records <- result
-          value <- recordJson(repository, record)
-        yield records :+ value
-      }
-      nextCursor = if afterCursor.length > limit then selected.lastOption.map(_.recordKey.value) else None
-      fields = Vector("records" -> Json.Arr(encoded)) ++ nextCursor.map(value => "cursor" -> Json.Str(value))
+      encoded <- selected
+        .foldLeft[Either[PdsFailure, Vector[Json]]](Right(Vector.empty)) { (result, record) =>
+          for
+            records <- result
+            value <- recordJson(repository, record)
+          yield records :+ value
+        }
+      nextCursor =
+        if afterCursor.length > limit then selected.lastOption.map(_.recordKey.value) else None
+      fields = Vector("records" -> Json.Arr(encoded)) ++
+        nextCursor.map(value => "cursor" -> Json.Str(value))
     yield PdsResponse.json(Json.Obj(fields))
 
   private def createRecord(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
@@ -322,7 +394,8 @@ private final class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int)
       body <- jsonBody(exchange)
       _ <- validateRepoField(body, "repo")
       collection <- parseCollection(body)
-      recordKey <- parseRecordKey(body, required = true).flatMap(_.toRight(PdsFailure(400, "InvalidRequest", "rkey is required")))
+      recordKey <- parseRecordKey(body, required = true)
+        .flatMap(_.toRight(PdsFailure(400, "InvalidRequest", "rkey is required")))
       _ <- state.applyWrite(RepositoryWrite.Delete(collection, recordKey))
     yield PdsResponse.json(Json.obj())
 
@@ -342,7 +415,8 @@ private final class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int)
   private def getRepo(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
     for
       _ <- validateRepoQuery(exchange, "did")
-      bytes <- state.currentRepository.exportCar.left.map(error => PdsFailure(500, "InternalServerError", error.message))
+      bytes <- state.currentRepository.exportCar.left
+        .map(error => PdsFailure(500, "InternalServerError", error.message))
     yield PdsResponse(200, "application/vnd.ipld.car", bytes)
 
   private def getLatestCommit(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
@@ -354,22 +428,32 @@ private final class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int)
       "rev" -> Json.Str(repository.commit.rev.value)
     ))
 
-  private def repositoryQuery(exchange: HttpExchange, requireRecordKey: Boolean): Either[PdsFailure, (Nsid, RecordKey)] =
+  private def repositoryQuery(
+      exchange: HttpExchange,
+      requireRecordKey: Boolean
+  ): Either[PdsFailure, (Nsid, RecordKey)] =
     for
       _ <- validateRepoQuery(exchange, "repo")
       collectionText <- queryRequired(exchange, "collection")
-      collection <- Nsid.parse(collectionText).left.map(error => PdsFailure(400, "InvalidRequest", error.toString))
+      collection <- Nsid.parse(collectionText).left
+        .map(error => PdsFailure(400, "InvalidRequest", error.toString))
       recordKeyText <- if requireRecordKey then queryRequired(exchange, "rkey") else Right("")
-      recordKey <- RecordKey.parse(recordKeyText).left.map(error => PdsFailure(400, "InvalidRequest", error.toString))
+      recordKey <- RecordKey.parse(recordKeyText).left
+        .map(error => PdsFailure(400, "InvalidRequest", error.toString))
     yield collection -> recordKey
 
-  private def decodeRecordInput(body: Json, requireRecordKey: Boolean): Either[PdsFailure, (Nsid, Option[RecordKey], learnat.ipld.Ipld)] =
+  private def decodeRecordInput(
+      body: Json,
+      requireRecordKey: Boolean
+  ): Either[PdsFailure, (Nsid, Option[RecordKey], learnat.ipld.Ipld)] =
     for
       _ <- validateRepoField(body, "repo")
       collection <- parseCollection(body)
       recordKey <- parseRecordKey(body, requireRecordKey)
-      recordJson <- body.field("record").left.map(error => PdsFailure(400, "InvalidRequest", error.message))
-      record <- DagJson.decode(recordJson).left.map(error => PdsFailure(400, "InvalidRequest", error.toString))
+      recordJson <- body.field("record").left
+        .map(error => PdsFailure(400, "InvalidRequest", error.message))
+      record <- DagJson.decode(recordJson).left
+        .map(error => PdsFailure(400, "InvalidRequest", error.toString))
     yield (collection, recordKey, record)
 
   private def parseCollection(body: Json): Either[PdsFailure, Nsid] =
@@ -378,17 +462,24 @@ private final class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int)
     )
 
   private def parseRecordKey(body: Json, required: Boolean): Either[PdsFailure, Option[RecordKey]] =
-    body.optionalField("rkey").left.map(error => PdsFailure(400, "InvalidRequest", error.message)).flatMap {
-      case None if !required => Right(None)
-      case None => Left(PdsFailure(400, "InvalidRequest", "rkey is required"))
-      case Some(value) => value.asString.left.map(error => PdsFailure(400, "InvalidRequest", error.message))
-        .flatMap(text => RecordKey.parse(text).left.map(error => PdsFailure(400, "InvalidRequest", error.toString)))
-        .map(Some.apply)
-    }
+    body.optionalField("rkey").left.map(error => PdsFailure(400, "InvalidRequest", error.message))
+      .flatMap {
+        case None if !required => Right(None)
+        case None              => Left(PdsFailure(400, "InvalidRequest", "rkey is required"))
+        case Some(value)       => value.asString.left
+            .map(error => PdsFailure(400, "InvalidRequest", error.message)).flatMap(text =>
+              RecordKey.parse(text).left
+                .map(error => PdsFailure(400, "InvalidRequest", error.toString))
+            ).map(Some.apply)
+      }
 
-  private def writeResponse(repository: Repository, record: RepositoryRecord): Either[PdsFailure, Json] =
-    repository.reference(record.collection, record.recordKey).toRight(PdsFailure(500, "InternalServerError", "committed record is missing")).map {
-      (uri, cid) => Json.obj(
+  private def writeResponse(
+      repository: Repository,
+      record: RepositoryRecord
+  ): Either[PdsFailure, Json] = repository.reference(record.collection, record.recordKey)
+    .toRight(PdsFailure(500, "InternalServerError", "committed record is missing"))
+    .map { (uri, cid) =>
+      Json.obj(
         "uri" -> Json.Str(uri.toString),
         "cid" -> Json.Str(cid.toString),
         "commit" -> Json.obj(
@@ -398,9 +489,12 @@ private final class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int)
       )
     }
 
-  private def recordJson(repository: Repository, record: RepositoryRecord): Either[PdsFailure, Json] =
-    repository.reference(record.collection, record.recordKey).toRight(PdsFailure(500, "InternalServerError", "record CID is missing")).map {
-      (uri, cid) => Json.obj(
+  private def recordJson(
+      repository: Repository,
+      record: RepositoryRecord
+  ): Either[PdsFailure, Json] = repository.reference(record.collection, record.recordKey)
+    .toRight(PdsFailure(500, "InternalServerError", "record CID is missing")).map { (uri, cid) =>
+      Json.obj(
         "uri" -> Json.Str(uri.toString),
         "cid" -> Json.Str(cid.toString),
         "value" -> DagJson.encode(record.value)
@@ -433,29 +527,42 @@ private final class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int)
     "active" -> Json.Bool(true)
   )
 
-  private def authorizeAccess(exchange: HttpExchange): Either[PdsFailure, Did] =
-    bearer(exchange).flatMap(token => state.sessions.verifyAccess(token).left.map(error => PdsFailure(401, "AuthenticationRequired", error.message)))
+  private def authorizeAccess(exchange: HttpExchange): Either[PdsFailure, Did] = bearer(exchange)
+    .flatMap(token =>
+      state.sessions.verifyAccess(token).left
+        .map(error => PdsFailure(401, "AuthenticationRequired", error.message))
+    )
 
   private def bearer(exchange: HttpExchange): Either[PdsFailure, String] =
     Option(exchange.getRequestHeaders.getFirst("Authorization")) match
       case Some(value) if value.startsWith("Bearer ") && value.length > 7 => Right(value.drop(7))
       case _ => Left(PdsFailure(401, "AuthenticationRequired", "missing bearer token"))
 
-  private def validateRepoField(json: Json, name: String): Either[PdsFailure, Unit] =
-    stringField(json, name).flatMap(value =>
-      Either.cond(matchesAccount(value), (), PdsFailure(400, "RepoNotFound", "repository is not hosted here"))
+  private def validateRepoField(json: Json, name: String): Either[PdsFailure, Unit] = stringField(
+    json,
+    name
+  ).flatMap(value =>
+    Either.cond(
+      matchesAccount(value),
+      (),
+      PdsFailure(400, "RepoNotFound", "repository is not hosted here")
     )
+  )
 
   private def validateRepoQuery(exchange: HttpExchange, name: String): Either[PdsFailure, Unit] =
     queryRequired(exchange, name).flatMap(value =>
-      Either.cond(matchesAccount(value), (), PdsFailure(400, "RepoNotFound", "repository is not hosted here"))
+      Either.cond(
+        matchesAccount(value),
+        (),
+        PdsFailure(400, "RepoNotFound", "repository is not hosted here")
+      )
     )
 
-  private def matchesAccount(value: String): Boolean =
-    value == state.did.value || value.equalsIgnoreCase(state.handle.normalized)
+  private def matchesAccount(value: String): Boolean = value == state.did.value ||
+    value.equalsIgnoreCase(state.handle.normalized)
 
-  private def stringField(json: Json, name: String): Either[PdsFailure, String] =
-    json.field(name).flatMap(_.asString).left.map(error => PdsFailure(400, "InvalidRequest", error.message))
+  private def stringField(json: Json, name: String): Either[PdsFailure, String] = json.field(name)
+    .flatMap(_.asString).left.map(error => PdsFailure(400, "InvalidRequest", error.message))
 
   private def jsonBody(exchange: HttpExchange): Either[PdsFailure, Json] =
     val contentType = Option(exchange.getRequestHeaders.getFirst("Content-Type")).getOrElse("")
@@ -463,28 +570,30 @@ private final class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int)
       Left(PdsFailure(415, "InvalidRequest", "Content-Type must be application/json"))
     else
       val bytes = exchange.getRequestBody.readNBytes(maxJsonBodyBytes + 1)
-      if bytes.length > maxJsonBodyBytes then Left(PdsFailure(413, "PayloadTooLarge", s"JSON body exceeds $maxJsonBodyBytes bytes"))
-      else Json.parse(String(bytes, StandardCharsets.UTF_8)).left.map(error => PdsFailure(400, "InvalidRequest", error.toString))
+      if bytes.length > maxJsonBodyBytes then
+        Left(PdsFailure(413, "PayloadTooLarge", s"JSON body exceeds $maxJsonBodyBytes bytes"))
+      else
+        Json.parse(String(bytes, StandardCharsets.UTF_8)).left
+          .map(error => PdsFailure(400, "InvalidRequest", error.toString))
 
   private def queryRequired(exchange: HttpExchange, name: String): Either[PdsFailure, String] =
     query(exchange).get(name).flatMap(_.headOption).filter(_.nonEmpty)
       .toRight(PdsFailure(400, "InvalidRequest", s"missing query parameter: $name"))
 
   private def query(exchange: HttpExchange): Map[String, Vector[String]] =
-    Option(exchange.getRequestURI.getRawQuery).toVector.flatMap(_.split("&", -1)).filter(_.nonEmpty).foldLeft(Map.empty[String, Vector[String]]) {
-      (parameters, pair) =>
+    Option(exchange.getRequestURI.getRawQuery).toVector.flatMap(_.split("&", -1)).filter(_.nonEmpty)
+      .foldLeft(Map.empty[String, Vector[String]]) { (parameters, pair) =>
         val parts = pair.split("=", 2)
         val name = decodeQuery(parts.head)
         val value = decodeQuery(parts.lift(1).getOrElse(""))
         parameters.updated(name, parameters.getOrElse(name, Vector.empty) :+ value)
-    }
+      }
 
   private def decodeQuery(value: String): String = URLDecoder.decode(value, StandardCharsets.UTF_8)
 
-  private def withMethod(
-      exchange: HttpExchange,
-      expected: String
-  )(result: => Either[PdsFailure, PdsResponse]): Either[PdsFailure, PdsResponse] =
+  private def withMethod(exchange: HttpExchange, expected: String)(
+      result: => Either[PdsFailure, PdsResponse]
+  ): Either[PdsFailure, PdsResponse] =
     if exchange.getRequestMethod == expected then result
     else Left(PdsFailure(405, "MethodNotAllowed", s"expected $expected"))
 
@@ -498,16 +607,14 @@ object LocalPdsMain:
   /** Starts the learning PDS and waits until the process receives a shutdown signal. */
   def main(args: Array[String]): Unit =
     val port = args.headOption.flatMap(_.toIntOption).getOrElse(2583)
-    val password = sys.env.getOrElse("LEARN_AT_PASSWORD", "change-me-in-the-environment").toCharArray
+    val password = sys.env.getOrElse("LEARN_AT_PASSWORD", "change-me-in-the-environment")
+      .toCharArray
     val dataDirectory = Path.of(sys.env.getOrElse("LEARN_AT_DATA", "data/local-pds"))
-    val handle = Handle.parse(sys.env.getOrElse("LEARN_AT_HANDLE", "alice.test")).fold(
-      error => throw IllegalArgumentException(error.toString),
-      identity
-    )
-    val running = LocalPds.start(LocalPdsConfig(handle, password, port, dataDirectory = Some(dataDirectory))).fold(
-      error => throw IllegalStateException(error.toString),
-      identity
-    )
+    val handle = Handle.parse(sys.env.getOrElse("LEARN_AT_HANDLE", "alice.test"))
+      .fold(error => throw IllegalArgumentException(error.toString), identity)
+    val running = LocalPds
+      .start(LocalPdsConfig(handle, password, port, dataDirectory = Some(dataDirectory)))
+      .fold(error => throw IllegalStateException(error.toString), identity)
     Arrays.fill(password, '\u0000')
     println(s"Local PDS listening at ${running.service}")
     println(s"DID: ${running.did.value}")

@@ -35,7 +35,10 @@ object DagJsonTests:
     test("recognizes only exact link and bytes extension objects") {
       val bytes = Array[Byte](1, 2, 3)
       val encoded = Base64.getEncoder.encodeToString(bytes)
-      equal(DagJson.decode(Json.obj("$bytes" -> Json.Str(encoded))), Right(Ipld.Bytes(ByteString(bytes))))
+      equal(
+        DagJson.decode(Json.obj("$bytes" -> Json.Str(encoded))),
+        Right(Ipld.Bytes(ByteString(bytes)))
+      )
       val ordinary = Json.obj("$bytes" -> Json.Str(encoded), "note" -> Json.Str("ordinary map"))
       assert(DagJson.decode(ordinary).exists(_.isInstanceOf[Ipld.Map]))
     }
@@ -53,4 +56,3 @@ object DagJsonTests:
       )
       equal(DagJson.encode(DagJson.decode(json).toOption.get), json)
     }
-

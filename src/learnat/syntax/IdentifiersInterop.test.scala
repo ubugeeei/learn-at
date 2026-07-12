@@ -30,7 +30,6 @@ object InteropSyntaxTests:
     val stream = Option(getClass.getResourceAsStream(s"/interop/syntax/$name"))
       .getOrElse(throw IllegalStateException(s"missing fixture: $name"))
     val source = Source.fromInputStream(stream, "UTF-8")
-    try
-      source.getLines().filter(line => line.nonEmpty && line != "#" && !line.startsWith("# ")).toVector
+    try source.getLines().filter(line => line.nonEmpty && line != "#" && !line.startsWith("# "))
+        .toVector
     finally source.close()
-

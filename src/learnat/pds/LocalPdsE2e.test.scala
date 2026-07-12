@@ -33,12 +33,14 @@ object LocalPdsE2eTests:
 
       test("rejects invalid credentials and accepts the configured account") {
         isLeft(client.login(AtIdentifier.HandleIdentifier(handle), "wrong".toCharArray))
-        val authenticated = client.login(AtIdentifier.HandleIdentifier(handle), "test-password".toCharArray)
+        val authenticated = client
+          .login(AtIdentifier.HandleIdentifier(handle), "test-password".toCharArray)
         assert(authenticated.isRight, authenticated)
         equal(authenticated.flatMap(_.getSession).map(_.did), Right(pds.did))
       }
 
-      val authenticated = client.login(AtIdentifier.HandleIdentifier(handle), "test-password".toCharArray).toOption.get
+      val authenticated = client
+        .login(AtIdentifier.HandleIdentifier(handle), "test-password".toCharArray).toOption.get
       var generatedKey: Option[RecordKey] = None
 
       test("creates a record with a server-generated TID key") {
@@ -58,7 +60,8 @@ object LocalPdsE2eTests:
         val third = RecordKey.parse("third").toOption.get
         assert(authenticated.putRecord(collection, second, note("second")).isRight)
         assert(authenticated.putRecord(collection, third, note("third")).isRight)
-        val firstPage = client.listRecords(AtIdentifier.DidIdentifier(pds.did), collection, limit = 2)
+        val firstPage = client
+          .listRecords(AtIdentifier.DidIdentifier(pds.did), collection, limit = 2)
         equal(firstPage.map(_.records.length), Right(2))
         assert(firstPage.toOption.get.cursor.nonEmpty)
         val secondPage = client.listRecords(
@@ -71,7 +74,10 @@ object LocalPdsE2eTests:
 
         val replaced = authenticated.putRecord(collection, first, note("replaced"))
         assert(replaced.isRight)
-        equal(client.getRecord(AtIdentifier.DidIdentifier(pds.did), collection, first).map(_.value), Right(note("replaced")))
+        equal(
+          client.getRecord(AtIdentifier.DidIdentifier(pds.did), collection, first).map(_.value),
+          Right(note("replaced"))
+        )
         assert(authenticated.deleteRecord(collection, first).isRight)
         isLeft(client.getRecord(AtIdentifier.DidIdentifier(pds.did), collection, first))
       }
@@ -80,7 +86,8 @@ object LocalPdsE2eTests:
         val bytes = client.getRepo(pds.did)
         assert(bytes.isRight, bytes)
         val verified = bytes.flatMap(value =>
-          RepositoryVerifier.verifyCar(value, pds.did, pds.signingPublicKey).left.map(error => learnat.client.ClientError(error.message))
+          RepositoryVerifier.verifyCar(value, pds.did, pds.signingPublicKey).left
+            .map(error => learnat.client.ClientError(error.message))
         )
         assert(verified.isRight, verified)
         equal(verified.map(_.records.length), Right(2))
@@ -149,7 +156,14 @@ object LocalPdsE2eTests:
         try
           Files.writeString(recordFile, noteJson("created from a file").render)
           val (createStatus, created, createError) = runCli(
-            Array("create", pds.service.toString, handle.value, collection.value, recordFile.toString, "cli-record"),
+            Array(
+              "create",
+              pds.service.toString,
+              handle.value,
+              collection.value,
+              recordFile.toString,
+              "cli-record"
+            ),
             Map("LEARN_AT_PASSWORD" -> "test-password")
           )
           equal(createStatus, 0)
@@ -158,14 +172,29 @@ object LocalPdsE2eTests:
 
           Files.writeString(recordFile, noteJson("updated from a file").render)
           val (putStatus, _, putError) = runCli(
-            Array("put", pds.service.toString, handle.value, collection.value, "cli-record", recordFile.toString),
+            Array(
+              "put",
+              pds.service.toString,
+              handle.value,
+              collection.value,
+              "cli-record",
+              recordFile.toString
+            ),
             Map("LEARN_AT_PASSWORD" -> "test-password")
           )
           equal(putStatus, 0)
           equal(putError, "")
 
           val (listStatus, listedText, listError) = runCli(
-            Array("list", pds.service.toString, pds.did.value, collection.value, "--limit", "1", "--reverse"),
+            Array(
+              "list",
+              pds.service.toString,
+              pds.did.value,
+              collection.value,
+              "--limit",
+              "1",
+              "--reverse"
+            ),
             Map.empty
           )
           equal(listStatus, 0)
@@ -179,7 +208,10 @@ object LocalPdsE2eTests:
           )
           equal(deleteStatus, 0)
           equal(deleteError, "")
-          equal(Json.parse(deletedText).flatMap(_.field("deleted")).flatMap(_.asBoolean), Right(true))
+          equal(
+            Json.parse(deletedText).flatMap(_.field("deleted")).flatMap(_.asBoolean),
+            Right(true)
+          )
           isLeft(client.getRecord(
             AtIdentifier.DidIdentifier(pds.did),
             collection,
@@ -193,7 +225,13 @@ object LocalPdsE2eTests:
         try
           Files.writeString(recordFile, "[1,2,3]")
           val (status, _, error) = runCli(
-            Array("create", pds.service.toString, handle.value, collection.value, recordFile.toString),
+            Array(
+              "create",
+              pds.service.toString,
+              handle.value,
+              collection.value,
+              recordFile.toString
+            ),
             Map("LEARN_AT_PASSWORD" -> "test-password")
           )
           equal(status, 2)
@@ -211,7 +249,8 @@ object LocalPdsE2eTests:
 
   private def withPds(body: learnat.pds.RunningLocalPds => Unit): Unit =
     val password = "test-password".toCharArray
-    val pds = LocalPds.start(LocalPdsConfig(handle, password, port = 0, workerThreads = 2)).toOption.get
+    val pds = LocalPds.start(LocalPdsConfig(handle, password, port = 0, workerThreads = 2)).toOption
+      .get
     java.util.Arrays.fill(password, '\u0000')
     try body(pds)
     finally pds.close()
@@ -232,4 +271,8 @@ object LocalPdsE2eTests:
     val output = ByteArrayOutputStream()
     val errors = ByteArrayOutputStream()
     val status = ClientMain.run(args, environment, PrintStream(output), PrintStream(errors))
-    (status, output.toString(StandardCharsets.UTF_8).trim, errors.toString(StandardCharsets.UTF_8).trim)
+    (
+      status,
+      output.toString(StandardCharsets.UTF_8).trim,
+      errors.toString(StandardCharsets.UTF_8).trim
+    )

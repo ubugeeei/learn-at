@@ -12,7 +12,7 @@ sealed abstract class ValidatedString protected (val value: String):
   final override def hashCode(): Int = 31 * getClass.hashCode + value.hashCode
   final override def equals(other: Any): Boolean = other match
     case identifier: ValidatedString => getClass == identifier.getClass && value == identifier.value
-    case _ => false
+    case _                           => false
 
 /** Durable decentralized account identifier with generic DID syntax. */
 final class Did private (value: String) extends ValidatedString(value):
@@ -59,7 +59,7 @@ enum AtIdentifier:
 
   /** Original identifier text for XRPC parameters. */
   def text: String = this match
-    case DidIdentifier(did) => did.value
+    case DidIdentifier(did)       => did.value
     case HandleIdentifier(handle) => handle.value
 
 object AtIdentifier:
@@ -71,12 +71,16 @@ object AtIdentifier:
 /** Reverse-domain Namespaced Identifier for Lexicons and XRPC methods. */
 final class Nsid private (value: String) extends ValidatedString(value):
   private lazy val segments = value.split('.').toVector
+
   /** Final case-sensitive definition or method name. */
   def name: String = segments.last
+
   /** Domain authority in ordinary domain order. */
   def authority: String = segments.init.reverse.mkString(".")
+
   /** Lower-case authority plus the original case-sensitive final name. */
-  def normalized: String = (segments.init.map(_.toLowerCase(java.util.Locale.ROOT)) :+ name).mkString(".")
+  def normalized: String = (segments.init.map(_.toLowerCase(java.util.Locale.ROOT)) :+ name)
+    .mkString(".")
 
 object Nsid:
   private val AllowedSegment = "^[a-zA-Z0-9-]+$".r
@@ -86,20 +90,16 @@ object Nsid:
   def parse(input: String): Either[SyntaxError, Nsid] =
     val segments = input.split("\\.", -1).toVector
     val authority = segments.dropRight(1)
-    val valid =
-      input.length <= 317 &&
-        segments.length >= 3 &&
-        segments.forall(segment =>
-          segment.nonEmpty &&
-            segment.length <= 63 &&
-            AllowedSegment.matches(segment) &&
-            !segment.startsWith("-") &&
-            !segment.endsWith("-")
-        ) &&
-        authority.headOption.exists(_.headOption.exists(_.isLetter)) &&
-        segments.lastOption.exists(Name.matches)
+    val valid = input.length <= 317 && segments.length >= 3 && segments.forall(segment =>
+      segment.nonEmpty && segment.length <= 63 && AllowedSegment.matches(segment) &&
+        !segment.startsWith("-") && !segment.endsWith("-")
+    ) && authority.headOption.exists(_.headOption.exists(_.isLetter)) &&
+      segments.lastOption.exists(Name.matches)
     if valid then Right(new Nsid(input))
-    else Left(SyntaxError("NSID", input, "expected reversed domain authority and an alphanumeric name"))
+    else
+      Left(
+        SyntaxError("NSID", input, "expected reversed domain authority and an alphanumeric name")
+      )
 
 /** General repository record key, before collection-specific key policy. */
 final class RecordKey private (value: String) extends ValidatedString(value)
@@ -111,13 +111,11 @@ object RecordKey:
   def parse(input: String): Either[SyntaxError, RecordKey] =
     if input != "." && input != ".." && Pattern.matches(input) then Right(new RecordKey(input))
     else
-      Left(
-        SyntaxError(
-          "record key",
-          input,
-          "expected 1-512 characters from A-Z, a-z, 0-9, _, ~, ., :, -; '.' and '..' are forbidden"
-        )
-      )
+      Left(SyntaxError(
+        "record key",
+        input,
+        "expected 1-512 characters from A-Z, a-z, 0-9, _, ~, ., :, -; '.' and '..' are forbidden"
+      ))
 
 /** Parsed AT URI with typed authority, collection, key, and JSON-pointer fragment. */
 final case class AtUri private (
@@ -129,7 +127,8 @@ final case class AtUri private (
   require(recordKey.isEmpty || collection.nonEmpty, "record key requires a collection")
 
   override def toString: String =
-    val path = collection.fold("")(value => s"/${value.value}${recordKey.fold("")(key => s"/${key.value}")}")
+    val path = collection
+      .fold("")(value => s"/${value.value}${recordKey.fold("")(key => s"/${key.value}")}")
     val hash = fragment.fold("")(value => s"#$value")
     s"at://${authority.text}$path$hash"
 
@@ -142,22 +141,28 @@ object AtUri:
     if input.length > 8192 then invalid(input, "exceeds 8192 characters")
     else if !input.startsWith("at://") then invalid(input, "must start with at://")
     else if !Allowed.matches(input) then invalid(input, "contains a disallowed character")
-    else if input.contains('?') then invalid(input, "query components are not allowed in strict AT URIs")
+    else if input.contains('?') then
+      invalid(input, "query components are not allowed in strict AT URIs")
     else
       splitFragment(input).flatMap { (withoutFragment, fragment) =>
         val rest = withoutFragment.drop(5)
         val parts = rest.split("/", -1).toVector
         if parts.isEmpty || parts.head.isEmpty then invalid(input, "authority is empty")
-        else if parts.length > 3 then invalid(input, "may have at most collection and record-key path segments")
-        else if parts.drop(1).exists(_.isEmpty) then invalid(input, "contains an empty or trailing path segment")
+        else if parts.length > 3 then
+          invalid(input, "may have at most collection and record-key path segments")
+        else if parts.drop(1).exists(_.isEmpty) then
+          invalid(input, "contains an empty or trailing path segment")
         else
           for
-            authority <- AtIdentifier.parse(parts.head).left.map(error => retag(input, error.message))
+            authority <- AtIdentifier.parse(parts.head).left
+              .map(error => retag(input, error.message))
             collection <- parts.lift(1) match
-              case Some(value) => Nsid.parse(value).map(Some.apply).left.map(error => retag(input, error.message))
+              case Some(value) => Nsid.parse(value).map(Some.apply).left
+                  .map(error => retag(input, error.message))
               case None => Right(None)
             recordKey <- parts.lift(2) match
-              case Some(value) => RecordKey.parse(value).map(Some.apply).left.map(error => retag(input, error.message))
+              case Some(value) => RecordKey.parse(value).map(Some.apply).left
+                  .map(error => retag(input, error.message))
               case None => Right(None)
           yield AtUri(authority, collection, recordKey, fragment)
       }
@@ -172,8 +177,10 @@ object AtUri:
     else
       val value = input.substring(firstHash + 1)
       if input.indexOf('#', firstHash + 1) >= 0 then invalid(input, "contains multiple fragments")
-      else if !Fragment.matches(value) then invalid(input, "fragment must be a valid JSON pointer beginning with '/'")
-      else if !hasValidPercentEncoding(value) then invalid(input, "fragment has invalid percent encoding")
+      else if !Fragment.matches(value) then
+        invalid(input, "fragment must be a valid JSON pointer beginning with '/'")
+      else if !hasValidPercentEncoding(value) then
+        invalid(input, "fragment has invalid percent encoding")
       else Right(input.substring(0, firstHash) -> Some(value))
 
   private def hasValidPercentEncoding(value: String): Boolean =
@@ -181,16 +188,21 @@ object AtUri:
     var valid = true
     while index < value.length && valid do
       if value.charAt(index) == '%' then
-        valid = index + 2 < value.length && isHex(value.charAt(index + 1)) && isHex(value.charAt(index + 2))
+        valid = index + 2 < value.length && isHex(value.charAt(index + 1)) &&
+          isHex(value.charAt(index + 2))
         index += 3
       else index += 1
     valid
 
   private def isHex(char: Char): Boolean =
-    (char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')
+    (char >= '0' && char <= '9') ||
+      (char >= 'a' && char <= 'f') ||
+      (char >= 'A' && char <= 'F')
 
-  private def retag(input: String, message: String): SyntaxError = SyntaxError("AT URI", input, message)
-  private def invalid[A](input: String, message: String): Left[SyntaxError, A] = Left(retag(input, message))
+  private def retag(input: String, message: String): SyntaxError =
+    SyntaxError("AT URI", input, message)
+  private def invalid[A](input: String, message: String): Left[SyntaxError, A] =
+    Left(retag(input, message))
 
 /** Decoded 13-character sortable Timestamp Identifier. */
 final class Tid private (value: String, val timestampMicros: Long, val clockId: Int)
@@ -205,15 +217,19 @@ object Tid:
   /** Parses the canonical 13-character sortable base32 representation. */
   def parse(input: String): Either[SyntaxError, Tid] =
     if !Pattern.matches(input) then
-      Left(SyntaxError("TID", input, "expected 13 base32-sortable characters with the high bit clear"))
+      Left(
+        SyntaxError("TID", input, "expected 13 base32-sortable characters with the high bit clear")
+      )
     else
-      val raw = input.foldLeft(0L) { (acc, char) => (acc << 5) | Alphabet.indexOf(char).toLong }
+      val raw = input.foldLeft(0L)((acc, char) => (acc << 5) | Alphabet.indexOf(char).toLong)
       Right(new Tid(input, raw >>> 10, (raw & 0x3ffL).toInt))
 
   /** Encodes the validated 53-bit timestamp and 10-bit clock identifier. */
   def fromParts(timestampMicros: Long, clockId: Int): Either[SyntaxError, Tid] =
     if timestampMicros < 0 || timestampMicros >= (1L << 53) then
-      Left(SyntaxError("TID timestamp", timestampMicros.toString, "must fit in 53 non-negative bits"))
+      Left(
+        SyntaxError("TID timestamp", timestampMicros.toString, "must fit in 53 non-negative bits")
+      )
     else if clockId < 0 || clockId > 1023 then
       Left(SyntaxError("TID clock id", clockId.toString, "must fit in 10 bits"))
     else
@@ -235,8 +251,10 @@ final class TidGenerator private (nowMicros: () => Long, clockId: Int):
   /** Returns a TID newer than local state and an optional repository revision. */
   def next(previous: Option[Tid] = None): Tid = synchronized {
     val afterLocal = math.max(nowMicros(), lastTimestamp + 1)
-    val timestamp = previous.fold(afterLocal)(value => math.max(afterLocal, value.timestampMicros + 1))
-    val tid = Tid.fromParts(timestamp, clockId).fold(error => throw IllegalStateException(error.toString), identity)
+    val timestamp = previous
+      .fold(afterLocal)(value => math.max(afterLocal, value.timestampMicros + 1))
+    val tid = Tid.fromParts(timestamp, clockId)
+      .fold(error => throw IllegalStateException(error.toString), identity)
     lastTimestamp = timestamp
     tid
   }

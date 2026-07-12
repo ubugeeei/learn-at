@@ -24,10 +24,13 @@ object SyntaxTests:
 
     test("validates and normalizes handles") {
       equal(Handle.parse("Alice.BSKY.Social").map(_.normalized), Right("alice.bsky.social"))
-      isLeft(Handle.parse("john"))
-      isLeft(Handle.parse("john-.test"))
-      isLeft(Handle.parse("127.0.0.1"))
     }
+
+    cases("rejects invalid handles")(
+      "single label" -> "john",
+      "trailing label dash" -> "john-.test",
+      "IPv4 address" -> "127.0.0.1"
+    )(input => isLeft(Handle.parse(input)))
 
     test("splits NSID authority and name") {
       val nsid = Nsid.parse("com.Example.getThing")
@@ -38,19 +41,24 @@ object SyntaxTests:
       isLeft(Nsid.parse("com.example.get-thing"))
     }
 
-    test("accepts general record keys but rejects path traversal segments") {
-      assert(RecordKey.parse("literal:self").isRight)
-      assert(RecordKey.parse("~1.2-3_").isRight)
-      isLeft(RecordKey.parse("."))
-      isLeft(RecordKey.parse(".."))
-      isLeft(RecordKey.parse("alpha/beta"))
-    }
+    cases("accepts general record keys")("colon" -> "literal:self", "safe symbols" -> "~1.2-3_")(
+      input => assert(RecordKey.parse(input).isRight)
+    )
+
+    cases("rejects unsafe record keys")(
+      "current directory" -> ".",
+      "parent directory" -> "..",
+      "path separator" -> "alpha/beta"
+    )(input => isLeft(RecordKey.parse(input)))
 
     test("parses strict AT URIs into typed parts") {
       val input = "at://did:plc:asdf123/com.atproto.feed.post/3jzfcijpj2z2a#/text"
       val parsed = AtUri.parse(input)
       equal(parsed.map(_.toString), Right(input))
-      equal(parsed.flatMap(_.collection.toRight(SyntaxError("test", input, "missing"))).map(_.value), Right("com.atproto.feed.post"))
+      equal(
+        parsed.flatMap(_.collection.toRight(SyntaxError("test", input, "missing"))).map(_.value),
+        Right("com.atproto.feed.post")
+      )
       isLeft(AtUri.parse("at://did:plc:asdf123/com.atproto.feed.post/"))
       isLeft(AtUri.parse("at://did:plc:asdf123?query=true"))
     }
@@ -58,7 +66,10 @@ object SyntaxTests:
     test("encodes and decodes the 64-bit TID layout") {
       val tid = Tid.fromParts(1_688_656_168_744_000L, 8)
       assert(tid.isRight)
-      equal(tid.flatMap(value => Tid.parse(value.value)).map(_.timestampMicros), Right(1_688_656_168_744_000L))
+      equal(
+        tid.flatMap(value => Tid.parse(value.value)).map(_.timestampMicros),
+        Right(1_688_656_168_744_000L)
+      )
       equal(tid.flatMap(value => Tid.parse(value.value)).map(_.clockId), Right(8))
       isLeft(Tid.parse("3JZFCIJPJ2Z2A"))
     }
@@ -70,4 +81,3 @@ object SyntaxTests:
       assert(second.newerThan(first))
       equal(second.timestampMicros, first.timestampMicros + 1)
     }
-

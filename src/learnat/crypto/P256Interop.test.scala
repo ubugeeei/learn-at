@@ -12,12 +12,14 @@ object InteropCryptoTests:
     println("Official cryptography interoperability fixtures")
 
     test("matches every official ES256 signature verdict") {
-      val fixtures = Json.parse(resource("signature-fixtures.json")).toOption.get.asArray.toOption.get
+      val fixtures = Json.parse(resource("signature-fixtures.json")).toOption.get.asArray.toOption
+        .get
       val p256Fixtures = fixtures.filter(_.field("algorithm").flatMap(_.asString).contains("ES256"))
       equal(p256Fixtures.length, 3)
       p256Fixtures.foreach { fixture =>
         val message = decodeBase64(fixture.field("messageBase64").flatMap(_.asString).toOption.get)
-        val signature = decodeBase64(fixture.field("signatureBase64").flatMap(_.asString).toOption.get)
+        val signature =
+          decodeBase64(fixture.field("signatureBase64").flatMap(_.asString).toOption.get)
         val didKey = fixture.field("publicKeyDid").flatMap(_.asString).toOption.get
         val expected = fixture.field("validSignature").flatMap(_.asBoolean).toOption.get
         val actual = P256.publicKeyFromDidKey(didKey).exists(_.verify(message, signature))
@@ -30,7 +32,8 @@ object InteropCryptoTests:
       equal(fixtures.length, 1)
       val fixture = fixtures.head
       val didKey = fixture.field("publicDidKey").flatMap(_.asString).toOption.get
-      val privateBytes = Base58Btc.decode(fixture.field("privateKeyBytesBase58").flatMap(_.asString).toOption.get)
+      val privateBytes = Base58Btc
+        .decode(fixture.field("privateKeyBytesBase58").flatMap(_.asString).toOption.get)
       equal(privateBytes.map(_.length), Right(32))
       equal(P256.publicKeyFromDidKey(didKey).map(_.didKey), Right(didKey))
     }
@@ -43,4 +46,3 @@ object InteropCryptoTests:
     val source = Source.fromInputStream(stream, "UTF-8")
     try source.mkString
     finally source.close()
-

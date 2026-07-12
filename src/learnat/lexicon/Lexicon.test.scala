@@ -14,8 +14,7 @@ import learnat.syntax.Nsid
 import learnat.tests.TestKit.*
 
 object LexiconTests:
-  private val document = parseDocument(
-    """
+  private val document = parseDocument("""
       {
         "lexicon": 1,
         "id": "com.example.note",
@@ -52,8 +51,7 @@ object LexiconTests:
           }
         }
       }
-    """
-  )
+    """)
   private val id = Nsid.parse("com.example.note").toOption.get
   private val registry = LexiconRegistry.from(Vector(document)).toOption.get
   private val validator = LexiconValidator(registry)
@@ -70,17 +68,30 @@ object LexiconTests:
     test("rejects invalid document and schema invariants") {
       isLeft(parse("""{"lexicon":2,"id":"com.example.bad","defs":{"main":{"type":"token"}}}"""))
       isLeft(parse("""{"lexicon":1,"id":"com.example.bad","defs":{}}"""))
-      isLeft(parse("""{"lexicon":1,"id":"com.example.bad","defs":{"main":{"type":"string","const":"x","default":"y"}}}"""))
-      isLeft(parse("""{"lexicon":1,"id":"com.example.bad","defs":{"main":{"type":"object","required":["missing"],"properties":{}}}}"""))
-      isLeft(parse("""{"lexicon":1,"id":"com.example.bad","defs":{"main":{"type":"union","refs":[]}}}"""))
-      isLeft(parse("""{"lexicon":1,"id":"com.example.bad","defs":{"main":{"type":"record","key":"uuid","record":{"type":"object","properties":{}}}}}"""))
-      isLeft(parse("""{"lexicon":1,"id":"com.example.bad","defs":{"main":{"type":"string","format":"email"}}}"""))
+      isLeft(parse(
+        """{"lexicon":1,"id":"com.example.bad","defs":{"main":{"type":"string","const":"x","default":"y"}}}"""
+      ))
+      isLeft(parse(
+        """{"lexicon":1,"id":"com.example.bad","defs":{"main":{"type":"object","required":["missing"],"properties":{}}}}"""
+      ))
+      isLeft(
+        parse("""{"lexicon":1,"id":"com.example.bad","defs":{"main":{"type":"union","refs":[]}}}""")
+      )
+      isLeft(parse(
+        """{"lexicon":1,"id":"com.example.bad","defs":{"main":{"type":"record","key":"uuid","record":{"type":"object","properties":{}}}}}"""
+      ))
+      isLeft(parse(
+        """{"lexicon":1,"id":"com.example.bad","defs":{"main":{"type":"string","format":"email"}}}"""
+      ))
     }
 
     test("parses local and global references canonically") {
       equal(LexiconRef.parse("#view").map(_.toString), Right("#view"))
       equal(LexiconRef.parse("com.example.note").map(_.toString), Right("com.example.note"))
-      equal(LexiconRef.parse("com.example.note#view").map(_.toString), Right("com.example.note#view"))
+      equal(
+        LexiconRef.parse("com.example.note#view").map(_.toString),
+        Right("com.example.note#view")
+      )
       isLeft(LexiconRef.parse("#"))
       isLeft(LexiconRef.parse("com.example.note#bad-name"))
     }
@@ -100,7 +111,8 @@ object LexiconTests:
     }
 
     test("distinguishes missing, null, and false-y values") {
-      val missing = Ipld.obj("$type" -> Ipld.Text(id.value), "createdAt" -> Ipld.Text("2026-07-10T00:00:00Z"))
+      val missing = Ipld
+        .obj("$type" -> Ipld.Text(id.value), "createdAt" -> Ipld.Text("2026-07-10T00:00:00Z"))
       isLeft(validator.validateRecord(id, missing))
       isLeft(validator.validateRecord(id, validRecord("ok", Vector("text" -> Ipld.Null))))
       assert(validator.validateRecord(id, validRecord("")).isRight)
@@ -114,11 +126,14 @@ object LexiconTests:
     }
 
     test("validates known unions and preserves unknown open variants") {
-      val known = Ipld.obj("$type" -> Ipld.Text("com.example.note#known"), "value" -> Ipld.Integer(3))
+      val known = Ipld
+        .obj("$type" -> Ipld.Text("com.example.note#known"), "value" -> Ipld.Integer(3))
       assert(validator.validateRecord(id, validRecord("ok", Vector("subject" -> known))).isRight)
 
-      val future = Ipld.obj("$type" -> Ipld.Text("com.example.note#future"), "value" -> Ipld.Integer(3))
-      val report = validator.validateRecord(id, validRecord("ok", Vector("subject" -> future))).toOption.get
+      val future = Ipld
+        .obj("$type" -> Ipld.Text("com.example.note#future"), "value" -> Ipld.Integer(3))
+      val report = validator.validateRecord(id, validRecord("ok", Vector("subject" -> future)))
+        .toOption.get
       assert(report.warnings.exists(_.message.contains("open-union")))
 
       val closed = Schema.Union(Vector(LexiconRef.parse("#known").toOption.get), closed = true)
@@ -130,12 +145,17 @@ object LexiconTests:
       assert(validator.validateRecord(id, validRecord("ok", Vector("tags" -> tags))).isRight)
       val tooMany = Ipld.List(Vector(Ipld.Text("ja"), Ipld.Text("en"), Ipld.Text("fr")))
       isLeft(validator.validateRecord(id, validRecord("ok", Vector("tags" -> tooMany))))
-      isLeft(validator.validateRecord(id, validRecord("ok", Vector("tags" -> Ipld.List(Vector(Ipld.Text("not_a_tag")))))))
+      isLeft(validator.validateRecord(
+        id,
+        validRecord("ok", Vector("tags" -> Ipld.List(Vector(Ipld.Text("not_a_tag")))))
+      ))
     }
 
     test("validates exact datetime syntax and semantics") {
       val schema = stringFormat("datetime")
-      assert(validator.validate(schema, Ipld.Text("1985-04-12T23:20:50.12345678912345Z"), id).isRight)
+      assert(
+        validator.validate(schema, Ipld.Text("1985-04-12T23:20:50.12345678912345Z"), id).isRight
+      )
       assert(validator.validate(schema, Ipld.Text("0000-01-01T00:00:00Z"), id).isRight)
       isLeft(validator.validate(schema, Ipld.Text("1985-00-12T23:20:50Z"), id))
       isLeft(validator.validate(schema, Ipld.Text("1985-04-12t23:20:50z"), id))
@@ -169,27 +189,28 @@ object LexiconTests:
       val cycleDocument = LexiconDocument(
         Nsid.parse("com.example.cycle").toOption.get,
         Map(
-          "loop" -> Definition.Data(
-            Schema.ObjectValue(
-              Vector("next" -> Schema.Reference(LexiconRef.parse("#loop").toOption.get)),
-              Set("next"),
-              Set.empty
-            )
-          )
+          "loop" -> Definition.Data(Schema.ObjectValue(
+            Vector("next" -> Schema.Reference(LexiconRef.parse("#loop").toOption.get)),
+            Set("next"),
+            Set.empty
+          ))
         )
       )
       val cycleRegistry = LexiconRegistry.from(Vector(cycleDocument)).toOption.get
       val cycleValidator = LexiconValidator(cycleRegistry)
       val cycle = Schema.Reference(LexiconRef.parse("#loop").toOption.get)
-      isLeft(cycleValidator.validate(cycle, Ipld.obj("next" -> Ipld.obj("next" -> Ipld.obj())), cycleDocument.id))
+      isLeft(
+        cycleValidator
+          .validate(cycle, Ipld.obj("next" -> Ipld.obj("next" -> Ipld.obj())), cycleDocument.id)
+      )
     }
 
     test("rejects duplicate registry documents") {
       isLeft(LexiconRegistry.from(Vector(document, document)))
     }
 
-  private def validRecord(text: String, extra: Vector[(String, Ipld)] = Vector.empty): Ipld =
-    Ipld.obj(
+  private def validRecord(text: String, extra: Vector[(String, Ipld)] = Vector.empty): Ipld = Ipld
+    .obj(
       (Vector(
         "$type" -> Ipld.Text(id.value),
         "text" -> Ipld.Text(text),
@@ -197,10 +218,10 @@ object LexiconTests:
       ) ++ extra)*
     )
 
-  private def stringFormat(name: String): Schema.StringValue =
-    Schema.StringValue(Some(name), None, None, None, None, None, None)
+  private def stringFormat(name: String): Schema.StringValue = Schema
+    .StringValue(Some(name), None, None, None, None, None, None)
 
   private def parseDocument(value: String): LexiconDocument = parse(value).toOption.get
 
-  private def parse(value: String) =
-    Json.parse(value).left.map(_.toString).flatMap(json => LexiconDocument.parse(json).left.map(_.toString))
+  private def parse(value: String) = Json.parse(value).left.map(_.toString)
+    .flatMap(json => LexiconDocument.parse(json).left.map(_.toString))

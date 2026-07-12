@@ -19,7 +19,10 @@ object IpldTests:
       val value = obj("aa" -> Integer(2), "b" -> Integer(1), "a" -> Integer(0))
       val bytes = DagCbor.encode(value).toOption.get
       equal(hex(bytes), "a361610061620162616102")
-      equal(DagCbor.decode(bytes), Right(obj("a" -> Integer(0), "b" -> Integer(1), "aa" -> Integer(2))))
+      equal(
+        DagCbor.decode(bytes),
+        Right(obj("a" -> Integer(0), "b" -> Integer(1), "aa" -> Integer(2)))
+      )
     }
 
     test("round trips signed 64-bit integer boundaries") {
@@ -30,7 +33,15 @@ object IpldTests:
     test("rejects duplicate keys and non-canonical input") {
       isLeft(DagCbor.encode(obj("a" -> Integer(1), "a" -> Integer(2))))
       isLeft(DagCbor.decode(Array(0x18.toByte, 0x01.toByte)))
-      isLeft(DagCbor.decode(Array(0xa2.toByte, 0x61.toByte, 'b'.toByte, 0x01.toByte, 0x61.toByte, 'a'.toByte, 0x02.toByte)))
+      isLeft(DagCbor.decode(Array(
+        0xa2.toByte,
+        0x61.toByte,
+        'b'.toByte,
+        0x01.toByte,
+        0x61.toByte,
+        'a'.toByte,
+        0x02.toByte
+      )))
     }
 
     test("creates and parses a CIDv1 with SHA-256 multihash") {

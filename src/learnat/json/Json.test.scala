@@ -9,10 +9,16 @@ object JsonTests:
     println("JSON")
 
     test("parses every JSON value kind") {
-      val input = """{"null":null,"bool":true,"number":-12.5e2,"string":"AT\nProtocol","array":[1,false]}"""
+      val input =
+        """{"null":null,"bool":true,"number":-12.5e2,"string":"AT\nProtocol","array":[1,false]}"""
       val parsed = Json.parse(input)
       assert(parsed.isRight, parsed)
-      equal(parsed.map(_.render), Right("""{"null":null,"bool":true,"number":-1250,"string":"AT\nProtocol","array":[1,false]}"""))
+      equal(
+        parsed.map(_.render),
+        Right(
+          """{"null":null,"bool":true,"number":-1250,"string":"AT\nProtocol","array":[1,false]}"""
+        )
+      )
     }
 
     test("round trips unicode including surrogate pairs") {
@@ -21,23 +27,18 @@ object JsonTests:
       equal(parsed.map(_.render), Right("\"Scala 🚀\""))
     }
 
-    test("rejects duplicate object keys") {
-      isLeft(Json.parse("""{"did":"first","did":"second"}"""))
-    }
+    test("rejects duplicate object keys")(isLeft(Json.parse("""{"did":"first","did":"second"}""")))
 
-    test("rejects invalid number grammar") {
-      isLeft(Json.parse("01"))
-      isLeft(Json.parse("1."))
-      isLeft(Json.parse("1e"))
-    }
+    cases("rejects invalid number grammar")(
+      "leading zero" -> "01",
+      "missing fraction" -> "1.",
+      "missing exponent" -> "1e",
+      "leading plus sign" -> "+1"
+    )(input => isLeft(Json.parse(input)))
 
-    test("rejects trailing input") {
-      isLeft(Json.parse("true false"))
-    }
+    test("rejects trailing input")(isLeft(Json.parse("true false")))
 
-    test("enforces the nesting limit") {
-      isLeft(Json.parse("[[[]]]", Json.Limits(maxDepth = 2)))
-    }
+    test("enforces the nesting limit")(isLeft(Json.parse("[[[]]]", Json.Limits(maxDepth = 2))))
 
     test("reads fields without unsafe casts") {
       val document = obj("did" -> Str("did:web:example.com"), "active" -> Bool(true))

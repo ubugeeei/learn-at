@@ -60,6 +60,14 @@ $ nix develop --command sbt verify
 $ nix develop --command sbt run
 ```
 
+Format all Scala and sbt sources with the repository-pinned formatter:
+
+```console
+$ nix develop --command sbt scalafmtAll
+```
+
+`verify` runs `scalafmtCheckAll`, so CI rejects formatting drift.
+
 Run the local client/server exercise:
 
 ```console

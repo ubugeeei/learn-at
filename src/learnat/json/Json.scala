@@ -16,49 +16,49 @@ enum Json:
 
   /** Reads a required object field while preserving type-versus-absence errors. */
   def field(name: String): Either[Json.AccessError, Json] = this match
-    case Json.Obj(fields) =>
-      fields.find(_._1 == name).map(_._2).toRight(Json.AccessError(s"missing field: $name"))
+    case Json.Obj(fields) => fields.find(_._1 == name).map(_._2)
+        .toRight(Json.AccessError(s"missing field: $name"))
     case other => Left(Json.AccessError(s"expected object, found ${other.kind}"))
 
   /** Reads an optional object field; a non-object remains an error. */
   def optionalField(name: String): Either[Json.AccessError, Option[Json]] = this match
     case Json.Obj(fields) => Right(fields.find(_._1 == name).map(_._2))
-    case other => Left(Json.AccessError(s"expected object, found ${other.kind}"))
+    case other            => Left(Json.AccessError(s"expected object, found ${other.kind}"))
 
   /** Requires a string node. */
   def asString: Either[Json.AccessError, String] = this match
     case Json.Str(value) => Right(value)
-    case other => Left(Json.AccessError(s"expected string, found ${other.kind}"))
+    case other           => Left(Json.AccessError(s"expected string, found ${other.kind}"))
 
   /** Requires a boolean node. */
   def asBoolean: Either[Json.AccessError, Boolean] = this match
     case Json.Bool(value) => Right(value)
-    case other => Left(Json.AccessError(s"expected boolean, found ${other.kind}"))
+    case other            => Left(Json.AccessError(s"expected boolean, found ${other.kind}"))
 
   /** Requires an integral number that fits in a signed 64-bit value. */
   def asLong: Either[Json.AccessError, Long] = this match
     case Json.Num(value) if value.isWhole && value.isValidLong => Right(value.toLong)
     case Json.Num(_) => Left(Json.AccessError("expected 64-bit integer"))
-    case other => Left(Json.AccessError(s"expected number, found ${other.kind}"))
+    case other       => Left(Json.AccessError(s"expected number, found ${other.kind}"))
 
   /** Requires an array node. */
   def asArray: Either[Json.AccessError, Vector[Json]] = this match
     case Json.Arr(value) => Right(value)
-    case other => Left(Json.AccessError(s"expected array, found ${other.kind}"))
+    case other           => Left(Json.AccessError(s"expected array, found ${other.kind}"))
 
   /** Requires an object node while preserving its observed field order. */
   def asObject: Either[Json.AccessError, Vector[(String, Json)]] = this match
     case Json.Obj(fields) => Right(fields)
-    case other => Left(Json.AccessError(s"expected object, found ${other.kind}"))
+    case other            => Left(Json.AccessError(s"expected object, found ${other.kind}"))
 
   /** Human-readable JSON kind used in typed access failures. */
   def kind: String = this match
-    case Json.Null => "null"
+    case Json.Null    => "null"
     case Json.Bool(_) => "boolean"
-    case Json.Num(_) => "number"
-    case Json.Str(_) => "string"
-    case Json.Arr(_) => "array"
-    case Json.Obj(_) => "object"
+    case Json.Num(_)  => "number"
+    case Json.Str(_)  => "string"
+    case Json.Arr(_)  => "array"
+    case Json.Obj(_)  => "object"
 
 /** Strict dependency-free JSON parser and compact renderer. */
 object Json:
@@ -83,8 +83,7 @@ object Json:
   def parse(input: String, limits: Limits = Limits()): Either[ParseError, Json] =
     if input.length > limits.maxInputChars then
       Left(ParseError(s"input exceeds ${limits.maxInputChars} characters", 0, 1, 1))
-    else if limits.maxDepth < 1 then
-      Left(ParseError("maxDepth must be at least 1", 0, 1, 1))
+    else if limits.maxDepth < 1 then Left(ParseError("maxDepth must be at least 1", 0, 1, 1))
     else Parser(input, limits).parseDocument()
 
   /** Renders a syntax tree as compact JSON. */
@@ -94,9 +93,9 @@ object Json:
     out.toString
 
   private def append(value: Json, out: java.lang.StringBuilder): Unit = value match
-    case Null => out.append("null")
+    case Null          => out.append("null")
     case Bool(boolean) => out.append(if boolean then "true" else "false")
-    case Num(number) =>
+    case Num(number)   =>
       val normalized = number.bigDecimal.stripTrailingZeros
       out.append(if normalized.signum == 0 then "0" else normalized.toPlainString)
     case Str(string) => appendString(string, out)
@@ -120,19 +119,19 @@ object Json:
   private def appendString(value: String, out: java.lang.StringBuilder): Unit =
     out.append('"')
     value.foreach {
-      case '"' => out.append("\\\"")
-      case '\\' => out.append("\\\\")
-      case '\b' => out.append("\\b")
-      case '\f' => out.append("\\f")
-      case '\n' => out.append("\\n")
-      case '\r' => out.append("\\r")
-      case '\t' => out.append("\\t")
+      case '"'                => out.append("\\\"")
+      case '\\'               => out.append("\\\\")
+      case '\b'               => out.append("\\b")
+      case '\f'               => out.append("\\f")
+      case '\n'               => out.append("\\n")
+      case '\r'               => out.append("\\r")
+      case '\t'               => out.append("\\t")
       case char if char < ' ' => out.append(f"\\u${char.toInt}%04x")
-      case char => out.append(char)
+      case char               => out.append(char)
     }
     out.append('"')
 
-  private final class Parser(input: String, limits: Limits):
+  final private class Parser(input: String, limits: Limits):
     private var offset = 0
 
     def parseDocument(): Either[ParseError, Json] =
@@ -146,15 +145,15 @@ object Json:
       if depth > limits.maxDepth then fail(s"nesting exceeds maxDepth ${limits.maxDepth}")
       else
         current match
-          case Some('n') => keyword("null", Null)
-          case Some('t') => keyword("true", Bool(true))
-          case Some('f') => keyword("false", Bool(false))
-          case Some('"') => parseString().map(Str.apply)
-          case Some('[') => parseArray(depth)
-          case Some('{') => parseObject(depth)
+          case Some('n')                                 => keyword("null", Null)
+          case Some('t')                                 => keyword("true", Bool(true))
+          case Some('f')                                 => keyword("false", Bool(false))
+          case Some('"')                                 => parseString().map(Str.apply)
+          case Some('[')                                 => parseArray(depth)
+          case Some('{')                                 => parseObject(depth)
           case Some(char) if char == '-' || char.isDigit => parseNumber()
-          case Some(_) => fail("expected a JSON value")
-          case None => fail("unexpected end of input")
+          case Some(_)                                   => fail("expected a JSON value")
+          case None                                      => fail("unexpected end of input")
 
     private def keyword(expected: String, value: Json): Either[ParseError, Json] =
       if input.regionMatches(offset, expected, 0, expected.length) then
@@ -173,7 +172,7 @@ object Json:
         while !done && failure.isEmpty do
           parseValue(depth + 1) match
             case Right(value) => values += value
-            case Left(error) => failure = Some(error)
+            case Left(error)  => failure = Some(error)
           if failure.isEmpty then
             skipWhitespace()
             if consume(']') then done = true
@@ -193,8 +192,9 @@ object Json:
         while !done && failure.isEmpty do
           if current.contains('"') then
             parseString() match
-              case Left(parseError) => failure = Some(parseError)
-              case Right(key) if keys.contains(key) => failure = Some(error(s"duplicate object key: $key"))
+              case Left(parseError)                 => failure = Some(parseError)
+              case Right(key) if keys.contains(key) =>
+                failure = Some(error(s"duplicate object key: $key"))
               case Right(key) =>
                 keys += key
                 skipWhitespace()
@@ -202,7 +202,7 @@ object Json:
                 else
                   skipWhitespace()
                   parseValue(depth + 1) match
-                    case Right(value) => fields += key -> value
+                    case Right(value)     => fields += key -> value
                     case Left(parseError) => failure = Some(parseError)
           else failure = Some(error("expected an object key string"))
           if failure.isEmpty then
@@ -222,17 +222,17 @@ object Json:
           val char = input.charAt(offset)
           offset += 1
           char match
-            case '"' => closed = true
-            case '\\' =>
-              parseEscape() match
-                case Right(value) => out.append(value)
+            case '"'  => closed = true
+            case '\\' => parseEscape() match
+                case Right(value)     => out.append(value)
                 case Left(parseError) => failure = Some(parseError)
-            case control if control < ' ' => failure = Some(error("unescaped control character in string"))
+            case control if control < ' ' =>
+              failure = Some(error("unescaped control character in string"))
             case value => out.append(value)
         failure match
           case Some(parseError) => Left(parseError)
-          case None if !closed => fail("unterminated string")
-          case None => Right(out.toString)
+          case None if !closed  => fail("unterminated string")
+          case None             => Right(out.toString)
 
     private def parseEscape(): Either[ParseError, String] =
       if atEnd then fail("unterminated escape sequence")
@@ -240,19 +240,19 @@ object Json:
         val escaped = input.charAt(offset)
         offset += 1
         escaped match
-          case '"' => Right("\"")
+          case '"'  => Right("\"")
           case '\\' => Right("\\")
-          case '/' => Right("/")
-          case 'b' => Right("\b")
-          case 'f' => Right("\f")
-          case 'n' => Right("\n")
-          case 'r' => Right("\r")
-          case 't' => Right("\t")
-          case 'u' => parseUnicodeEscape()
-          case _ => fail("invalid escape sequence")
+          case '/'  => Right("/")
+          case 'b'  => Right("\b")
+          case 'f'  => Right("\f")
+          case 'n'  => Right("\n")
+          case 'r'  => Right("\r")
+          case 't'  => Right("\t")
+          case 'u'  => parseUnicodeEscape()
+          case _    => fail("invalid escape sequence")
 
-    private def parseUnicodeEscape(): Either[ParseError, String] =
-      readHexCodeUnit().flatMap { first =>
+    private def parseUnicodeEscape(): Either[ParseError, String] = readHexCodeUnit()
+      .flatMap { first =>
         if Character.isHighSurrogate(first.toChar) then
           if offset + 2 <= input.length && input.startsWith("\\u", offset) then
             offset += 2
@@ -299,11 +299,13 @@ object Json:
       catch case _: NumberFormatException => fail("number is out of range")
 
     private def isHexDigit(char: Char): Boolean =
-      (char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')
+      (char >= '0' && char <= '9') ||
+        (char >= 'a' && char <= 'f') ||
+        (char >= 'A' && char <= 'F')
 
-    private def skipWhitespace(): Unit =
-      while current.exists(char => char == ' ' || char == '\n' || char == '\r' || char == '\t') do
-        offset += 1
+    private def skipWhitespace(): Unit = while current
+        .exists(char => char == ' ' || char == '\n' || char == '\r' || char == '\t')
+    do offset += 1
 
     private def consume(expected: Char): Boolean =
       if current.contains(expected) then

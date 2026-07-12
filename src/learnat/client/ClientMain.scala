@@ -53,13 +53,21 @@ object ClientMain:
           identifier <- identifier(repo)
           nsid <- collectionId(collection)
           listOptions <- parseListOptions(options)
-          page <- client.listRecords(identifier, nsid, listOptions.limit, listOptions.cursor, listOptions.reverse)
+          page <- client.listRecords(
+            identifier,
+            nsid,
+            listOptions.limit,
+            listOptions.cursor,
+            listOptions.reverse
+          )
         yield Json.obj(
-          "records" -> Json.Arr(page.records.map(record => Json.obj(
-            "uri" -> Json.Str(record.uri.toString),
-            "cid" -> Json.Str(record.cid.toString),
-            "value" -> DagJson.encode(record.value)
-          ))),
+          "records" -> Json.Arr(page.records.map(record =>
+            Json.obj(
+              "uri" -> Json.Str(record.uri.toString),
+              "cid" -> Json.Str(record.cid.toString),
+              "value" -> DagJson.encode(record.value)
+            )
+          )),
           "cursor" -> page.cursor.fold[Json](Json.Null)(Json.Str.apply)
         ).render
       case Vector("create", service, account, collection, input) =>
@@ -86,16 +94,20 @@ object ClientMain:
         ).render
       case Vector("post", service, account, collection, text) =>
         for
-          password <- environment.get("LEARN_AT_PASSWORD").toRight(ClientError("LEARN_AT_PASSWORD is required for post"))
+          password <- environment.get("LEARN_AT_PASSWORD")
+            .toRight(ClientError("LEARN_AT_PASSWORD is required for post"))
           client <- client(service)
           identifier <- identifier(account)
           nsid <- collectionId(collection)
           authenticated <- client.login(identifier, password.toCharArray)
-          created <- authenticated.createRecord(nsid, Ipld.obj(
-            "$type" -> Ipld.Text(nsid.value),
-            "text" -> Ipld.Text(text),
-            "createdAt" -> Ipld.Text(Instant.now().toString)
-          ))
+          created <- authenticated.createRecord(
+            nsid,
+            Ipld.obj(
+              "$type" -> Ipld.Text(nsid.value),
+              "text" -> Ipld.Text(text),
+              "createdAt" -> Ipld.Text(Instant.now().toString)
+            )
+          )
         yield Json.obj(
           "uri" -> Json.Str(created.uri.toString),
           "cid" -> Json.Str(created.cid.toString),
@@ -113,10 +125,16 @@ object ClientMain:
             try
               Files.write(Path.of(output), bytes)
               Right(())
-            catch case exception: Exception => Left(ClientError(s"failed to write $output: ${exception.getMessage}"))
-        yield Json.obj("path" -> Json.Str(Path.of(output).toAbsolutePath.toString), "bytes" -> Json.Num(bytes.length)).render
+            catch
+              case exception: Exception =>
+                Left(ClientError(s"failed to write $output: ${exception.getMessage}"))
+        yield Json.obj(
+          "path" -> Json.Str(Path.of(output).toAbsolutePath.toString),
+          "bytes" -> Json.Num(bytes.length)
+        ).render
       case Vector("verify", didText, input) => verifyExport(didText, input, allowHttpLocal = false)
-      case Vector("verify", didText, input, "--allow-http-local") => verifyExport(didText, input, allowHttpLocal = true)
+      case Vector("verify", didText, input, "--allow-http-local") =>
+        verifyExport(didText, input, allowHttpLocal = true)
       case _ => Left(ClientError(usage))
 
     result match
@@ -129,30 +147,33 @@ object ClientMain:
 
   private def client(value: String): Either[ClientError, AtpClient] =
     try AtpClient.create(URI.create(value))
-    catch case exception: IllegalArgumentException => Left(ClientError(s"invalid service URI: ${exception.getMessage}"))
+    catch
+      case exception: IllegalArgumentException =>
+        Left(ClientError(s"invalid service URI: ${exception.getMessage}"))
 
-  private def identifier(value: String): Either[ClientError, AtIdentifier] =
-    AtIdentifier.parse(value).left.map(error => ClientError(error.toString))
+  private def identifier(value: String): Either[ClientError, AtIdentifier] = AtIdentifier
+    .parse(value).left.map(error => ClientError(error.toString))
 
-  private def collectionId(value: String): Either[ClientError, Nsid] =
-    Nsid.parse(value).left.map(error => ClientError(error.toString))
+  private def collectionId(value: String): Either[ClientError, Nsid] = Nsid.parse(value).left
+    .map(error => ClientError(error.toString))
 
-  private def rkey(value: String): Either[ClientError, RecordKey] =
-    RecordKey.parse(value).left.map(error => ClientError(error.toString))
+  private def rkey(value: String): Either[ClientError, RecordKey] = RecordKey.parse(value).left
+    .map(error => ClientError(error.toString))
 
-  private final case class ListOptions(limit: Int, cursor: Option[String], reverse: Boolean)
+  final private case class ListOptions(limit: Int, cursor: Option[String], reverse: Boolean)
 
   private def parseListOptions(values: Seq[String]): Either[ClientError, ListOptions] =
     def loop(remaining: List[String], result: ListOptions): Either[ClientError, ListOptions] =
       remaining match
-        case Nil => Right(result)
-        case "--limit" :: value :: tail =>
-          value.toIntOption.filter(number => number >= 1 && number <= 100) match
+        case Nil                        => Right(result)
+        case "--limit" :: value :: tail => value.toIntOption
+            .filter(number => number >= 1 && number <= 100) match
             case Some(number) => loop(tail, result.copy(limit = number))
-            case None => Left(ClientError("--limit must be an integer from 1 to 100"))
-        case "--cursor" :: value :: tail if value.nonEmpty => loop(tail, result.copy(cursor = Some(value)))
+            case None         => Left(ClientError("--limit must be an integer from 1 to 100"))
+        case "--cursor" :: value :: tail if value.nonEmpty =>
+          loop(tail, result.copy(cursor = Some(value)))
         case "--reverse" :: tail => loop(tail, result.copy(reverse = true))
-        case option :: _ => Left(ClientError(s"unknown or incomplete list option: $option"))
+        case option :: _         => Left(ClientError(s"unknown or incomplete list option: $option"))
     loop(values.toList, ListOptions(50, None, false))
 
   private def login(
@@ -181,7 +202,7 @@ object ClientMain:
       nsid <- collectionId(collection)
       key <- recordKey match
         case Some(value) => rkey(value).map(Some.apply)
-        case None => Right(None)
+        case None        => Right(None)
       record <- readRecord(input)
       written <- authenticated.createRecord(nsid, record, key)
     yield renderWrite(written)
@@ -193,27 +214,32 @@ object ClientMain:
       if size > MaxRecordFileBytes then
         Left(ClientError(s"record file exceeds $MaxRecordFileBytes bytes: $value"))
       else
-        Json.parse(Files.readString(path))
-          .left.map(error => ClientError(s"invalid JSON in $value: ${error.toString}"))
-          .flatMap(json => DagJson.decode(json).left.map(error => ClientError(s"invalid DAG-JSON in $value: ${error.toString}")))
-          .flatMap {
+        Json.parse(Files.readString(path)).left
+          .map(error => ClientError(s"invalid JSON in $value: ${error.toString}")).flatMap(json =>
+            DagJson.decode(json).left
+              .map(error => ClientError(s"invalid DAG-JSON in $value: ${error.toString}"))
+          ).flatMap {
             case record @ Ipld.Map(_) => Right(record)
             case _ => Left(ClientError(s"record in $value must be a JSON object"))
           }
     catch
-      case exception: Exception => Left(ClientError(s"failed to read $value: ${exception.getMessage}"))
+      case exception: Exception =>
+        Left(ClientError(s"failed to read $value: ${exception.getMessage}"))
 
-  private def renderWrite(written: RecordWriteResult): String =
-    Json.obj(
-      "uri" -> Json.Str(written.uri.toString),
-      "cid" -> Json.Str(written.cid.toString),
-      "commit" -> Json.obj(
-        "cid" -> written.commitCid.fold[Json](Json.Null)(cid => Json.Str(cid.toString)),
-        "rev" -> written.revision.fold[Json](Json.Null)(Json.Str.apply)
-      )
-    ).render
+  private def renderWrite(written: RecordWriteResult): String = Json.obj(
+    "uri" -> Json.Str(written.uri.toString),
+    "cid" -> Json.Str(written.cid.toString),
+    "commit" -> Json.obj(
+      "cid" -> written.commitCid.fold[Json](Json.Null)(cid => Json.Str(cid.toString)),
+      "rev" -> written.revision.fold[Json](Json.Null)(Json.Str.apply)
+    )
+  ).render
 
-  private def verifyExport(didText: String, input: String, allowHttpLocal: Boolean): Either[ClientError, String] =
+  private def verifyExport(
+      didText: String,
+      input: String,
+      allowHttpLocal: Boolean
+  ): Either[ClientError, String] =
     for
       did <- Did.parse(didText).left.map(error => ClientError(error.toString))
       bytes <- readBoundedFile(Path.of(input), MaxCarFileBytes, "CAR")
@@ -221,10 +247,10 @@ object ClientMain:
         JdkIdentityNetwork.default,
         IdentityResolverConfig(allowHttpLocal = allowHttpLocal, allowTestTld = allowHttpLocal)
       ).resolve(AtIdentifier.DidIdentifier(did)).left.map(error => ClientError(error.description))
-      publicKey <- P256.publicKeyFromMultikey(identity.signingKeyMultibase)
-        .left.map(error => ClientError(error.message))
-      repository <- RepositoryVerifier.verifyCar(bytes, did, publicKey)
-        .left.map(error => ClientError(error.message))
+      publicKey <- P256.publicKeyFromMultikey(identity.signingKeyMultibase).left
+        .map(error => ClientError(error.message))
+      repository <- RepositoryVerifier.verifyCar(bytes, did, publicKey).left
+        .map(error => ClientError(error.message))
     yield Json.obj(
       "verified" -> Json.Bool(true),
       "did" -> Json.Str(did.value),
@@ -233,15 +259,21 @@ object ClientMain:
       "records" -> Json.Num(repository.records.length)
     ).render
 
-  private def readBoundedFile(path: Path, maximumBytes: Int, kind: String): Either[ClientError, Array[Byte]] =
+  private def readBoundedFile(
+      path: Path,
+      maximumBytes: Int,
+      kind: String
+  ): Either[ClientError, Array[Byte]] =
     try
       val size = Files.size(path)
-      if size > maximumBytes then Left(ClientError(s"$kind file exceeds $maximumBytes bytes: $path"))
+      if size > maximumBytes then
+        Left(ClientError(s"$kind file exceeds $maximumBytes bytes: $path"))
       else Right(Files.readAllBytes(path))
-    catch case exception: Exception => Left(ClientError(s"failed to read $path: ${exception.getMessage}"))
+    catch
+      case exception: Exception =>
+        Left(ClientError(s"failed to read $path: ${exception.getMessage}"))
 
-  private val usage =
-    """usage:
+  private val usage = """usage:
       |  learn-at client get <service> <repo> <collection> <rkey>
       |  learn-at client list <service> <repo> <collection> [--limit 1..100] [--cursor value] [--reverse]
       |  LEARN_AT_PASSWORD=... learn-at client post <service> <account> <collection> <text>

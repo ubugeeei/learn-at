@@ -45,11 +45,13 @@ object AuthTests:
 
     test("rejects expired, tampered, and explicitly revoked access tokens") {
       var now = 1000L
-      val store = SessionStore.testing(Array.fill[Byte](32)(9), () => now, accessLifetimeSeconds = 10).toOption.get
+      val store = SessionStore
+        .testing(Array.fill[Byte](32)(9), () => now, accessLifetimeSeconds = 10).toOption.get
       val token = store.issue(did).accessJwt
       assert(store.verifyAccess(token).isRight)
       val signatureStart = token.lastIndexOf('.') + 1
-      val tampered = token.updated(signatureStart, if token.charAt(signatureStart) == 'a' then 'b' else 'a')
+      val tampered = token
+        .updated(signatureStart, if token.charAt(signatureStart) == 'a' then 'b' else 'a')
       isLeft(store.verifyAccess(tampered))
       assert(store.revoke(token).isRight)
       isLeft(store.verifyAccess(token))

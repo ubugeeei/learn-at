@@ -48,4 +48,3 @@ object CarTests:
       val encoded = Car.write(CarFile(Vector(block.cid), Vector(block, block))).toOption.get
       isLeft(Car.read(encoded))
     }
-

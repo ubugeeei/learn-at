@@ -25,17 +25,22 @@ object LocalPdsPersistenceTests:
     test("restores signing identity and records across a restart") {
       withDirectory { directory =>
         val password = "persistent-password".toCharArray
-        val first = LocalPds.start(LocalPdsConfig(handle, password.clone(), port = 0, dataDirectory = Some(directory))).toOption.get
+        val first = LocalPds.start(
+          LocalPdsConfig(handle, password.clone(), port = 0, dataDirectory = Some(directory))
+        ).toOption.get
         val port = first.service.getPort
         val did = first.did
         val publicKey = first.signingPublicKey
         val firstRevision = first.repository.commit.rev
         val client = AtpClient.create(first.service).toOption.get
-        val authenticated = client.login(AtIdentifier.HandleIdentifier(handle), password.clone()).toOption.get
+        val authenticated = client.login(AtIdentifier.HandleIdentifier(handle), password.clone())
+          .toOption.get
         assert(authenticated.putRecord(collection, key, note("survives restart")).isRight)
         first.close()
 
-        val second = LocalPds.start(LocalPdsConfig(handle, password.clone(), port = port, dataDirectory = Some(directory))).toOption.get
+        val second = LocalPds.start(
+          LocalPdsConfig(handle, password.clone(), port = port, dataDirectory = Some(directory))
+        ).toOption.get
         try
           equal(second.did, did)
           equal(second.signingPublicKey.multikey, publicKey.multikey)
@@ -54,32 +59,40 @@ object LocalPdsPersistenceTests:
     test("fails closed when persisted state is corrupted") {
       withDirectory { directory =>
         Files.writeString(directory.resolve("state.json"), "not json", StandardCharsets.UTF_8)
-        val result = LocalPds.start(LocalPdsConfig(handle, "password".toCharArray, port = 0, dataDirectory = Some(directory)))
+        val result = LocalPds.start(
+          LocalPdsConfig(handle, "password".toCharArray, port = 0, dataDirectory = Some(directory))
+        )
         isLeft(result)
       }
     }
 
     test("refuses to reuse stored key material for a different did:web port") {
       withDirectory { directory =>
-        val first = LocalPds.start(LocalPdsConfig(handle, "password".toCharArray, port = 0, dataDirectory = Some(directory))).toOption.get
-        val differentPort = if first.service.getPort == 65535 then 65534 else first.service.getPort + 1
+        val first = LocalPds.start(
+          LocalPdsConfig(handle, "password".toCharArray, port = 0, dataDirectory = Some(directory))
+        ).toOption.get
+        val differentPort =
+          if first.service.getPort == 65535 then 65534 else first.service.getPort + 1
         first.close()
-        isLeft(LocalPds.start(LocalPdsConfig(handle, "password".toCharArray, port = differentPort, dataDirectory = Some(directory))))
+        isLeft(LocalPds.start(LocalPdsConfig(
+          handle,
+          "password".toCharArray,
+          port = differentPort,
+          dataDirectory = Some(directory)
+        )))
       }
     }
 
-  private def note(text: String): Ipld = Ipld.obj(
-    "$type" -> Ipld.Text(collection.value),
-    "text" -> Ipld.Text(text)
-  )
+  private def note(text: String): Ipld = Ipld
+    .obj("$type" -> Ipld.Text(collection.value), "text" -> Ipld.Text(text))
 
   private def withDirectory(body: Path => Unit): Unit =
     val directory = Files.createTempDirectory("learn-at-pds-test")
     try body(directory)
     finally deleteRecursively(directory)
 
-  private def deleteRecursively(path: Path): Unit =
-    if Files.exists(path) then
-      val stream = Files.walk(path)
-      try stream.sorted(java.util.Comparator.reverseOrder()).forEach(value => Files.deleteIfExists(value))
-      finally stream.close()
+  private def deleteRecursively(path: Path): Unit = if Files.exists(path) then
+    val stream = Files.walk(path)
+    try stream.sorted(java.util.Comparator.reverseOrder())
+        .forEach(value => Files.deleteIfExists(value))
+    finally stream.close()

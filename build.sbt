@@ -41,6 +41,7 @@ lazy val root = project
       if (violations.nonEmpty) sys.error(s"Japanese text found in English repository files: ${violations.mkString(", ")}")
     },
     verify := {
+      scalafmtCheckAll.value
       verifyEnglish.value
       (Test / runMain).toTask(" learnat.tests.AllTests").value
     }

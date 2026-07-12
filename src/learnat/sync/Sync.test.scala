@@ -25,7 +25,8 @@ object SyncTests:
     println("Repository synchronization")
 
     test("decodes message and error event-stream frames") {
-      val messageHeader = DagCbor.encode(Ipld.obj("op" -> Ipld.Integer(1), "t" -> Ipld.Text("#commit"))).toOption.get
+      val messageHeader = DagCbor
+        .encode(Ipld.obj("op" -> Ipld.Integer(1), "t" -> Ipld.Text("#commit"))).toOption.get
       val messageBody = DagCbor.encode(Ipld.obj("seq" -> Ipld.Integer(1))).toOption.get
       equal(
         EventStreamCodec.decode(messageHeader ++ messageBody),
@@ -33,7 +34,9 @@ object SyncTests:
       )
 
       val errorHeader = DagCbor.encode(Ipld.obj("op" -> Ipld.Integer(-1))).toOption.get
-      val errorBody = DagCbor.encode(Ipld.obj("error" -> Ipld.Text("FutureCursor"), "message" -> Ipld.Text("retry"))).toOption.get
+      val errorBody = DagCbor
+        .encode(Ipld.obj("error" -> Ipld.Text("FutureCursor"), "message" -> Ipld.Text("retry")))
+        .toOption.get
       equal(
         EventStreamCodec.decode(errorHeader ++ errorBody),
         Right(EventFrame.Error("FutureCursor", Some("retry")))
@@ -63,7 +66,8 @@ object SyncTests:
         assert(initial.exists(_.isInstanceOf[SyncResult.Updated]))
         assert(mirror.syncOnce().exists(_.isInstanceOf[SyncResult.Unchanged]))
 
-        val authenticated = client.login(AtIdentifier.HandleIdentifier(handle), "sync-password".toCharArray).toOption.get
+        val authenticated = client
+          .login(AtIdentifier.HandleIdentifier(handle), "sync-password".toCharArray).toOption.get
         val record = Ipld.obj("$type" -> Ipld.Text(collection.value), "text" -> Ipld.Text("new"))
         assert(authenticated.putRecord(collection, key, record).isRight)
         val updated = mirror.syncOnce()
@@ -85,4 +89,3 @@ object SyncTests:
     java.util.Arrays.fill(password, '\u0000')
     try body(pds)
     finally pds.close()
-

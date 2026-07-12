@@ -12,8 +12,7 @@ import learnat.tests.TestKit.*
 object IdentityTests:
   private val did = Did.parse("did:plc:alice123").toOption.get
   private val handle = Handle.parse("alice.test").toOption.get
-  private val document =
-    """{
+  private val document = """{
       |  "id": "did:plc:alice123",
       |  "alsoKnownAs": ["at://alice.test"],
       |  "verificationMethod": [{
@@ -51,7 +50,9 @@ object IdentityTests:
         Map.empty
       )
       val resolver = IdentityResolver(network, IdentityResolverConfig(allowTestTld = true))
-      assert(resolver.resolveHandle(handle).left.exists(_.isInstanceOf[IdentityError.AmbiguousHandle]))
+      assert(
+        resolver.resolveHandle(handle).left.exists(_.isInstanceOf[IdentityError.AmbiguousHandle])
+      )
     }
 
     test("falls back to the HTTPS well-known handle endpoint") {
@@ -68,7 +69,10 @@ object IdentityTests:
         Map(URI.create("https://plc.directory/did:plc:alice123") -> ok(withoutAlias))
       )
       val resolver = IdentityResolver(network, IdentityResolverConfig(allowTestTld = true))
-      assert(resolver.resolve(AtIdentifier.HandleIdentifier(handle)).left.exists(_.isInstanceOf[IdentityError.HandleMismatch]))
+      assert(
+        resolver.resolve(AtIdentifier.HandleIdentifier(handle)).left
+          .exists(_.isInstanceOf[IdentityError.HandleMismatch])
+      )
     }
 
     test("checks the expected DID and ignores unrelated service entries") {
@@ -85,26 +89,34 @@ object IdentityTests:
       val uri = URI.create("http://localhost:2583/.well-known/did.json")
       val network = FakeIdentityNetwork(Map.empty, Map(uri -> ok(localDocument)))
       assert(IdentityResolver(network).resolveDid(localDid).isLeft)
-      assert(IdentityResolver(network, IdentityResolverConfig(allowHttpLocal = true)).resolveDid(localDid).isRight)
+      assert(
+        IdentityResolver(network, IdentityResolverConfig(allowHttpLocal = true))
+          .resolveDid(localDid).isRight
+      )
     }
 
     test("rejects invalid did:web percent encoding without throwing") {
       val malformed = Did.parse("did:web:localhost%GG").toOption.get
-      val resolver = IdentityResolver(FakeIdentityNetwork(Map.empty, Map.empty), IdentityResolverConfig(allowHttpLocal = true))
+      val resolver = IdentityResolver(
+        FakeIdentityNetwork(Map.empty, Map.empty),
+        IdentityResolverConfig(allowHttpLocal = true)
+      )
       assert(resolver.resolveDid(malformed).isLeft)
     }
 
   private def ok(body: String): IdentityHttpResponse =
     IdentityHttpResponse(200, body.getBytes(StandardCharsets.UTF_8))
 
-  private final class FakeIdentityNetwork(
+  final private class FakeIdentityNetwork(
       records: Map[String, Vector[String]],
       responses: Map[URI, IdentityHttpResponse]
   ) extends IdentityNetwork:
-    override def dnsTxt(name: String): Either[IdentityError, Vector[String]] = Right(records.getOrElse(name, Vector.empty))
+    override def dnsTxt(name: String): Either[IdentityError, Vector[String]] =
+      Right(records.getOrElse(name, Vector.empty))
 
     override def get(uri: URI, maxBytes: Int): Either[IdentityError, IdentityHttpResponse] =
       responses.get(uri) match
         case Some(response) if response.body.length <= maxBytes => Right(response)
-        case Some(response) => Left(IdentityError.ResponseTooLarge(uri, maxBytes, response.body.length))
+        case Some(response)                                     =>
+          Left(IdentityError.ResponseTooLarge(uri, maxBytes, response.body.length))
         case None => Left(IdentityError.Network(s"no fake response for $uri", None))

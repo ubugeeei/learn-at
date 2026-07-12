@@ -16,6 +16,8 @@ import learnat.crypto.P256KeyPair
 import learnat.crypto.P256PublicKey
 import learnat.ipld.DagJson
 import learnat.ipld.Cid
+import learnat.ipld.ByteString
+import learnat.ipld.Ipld
 import learnat.json.Json
 import learnat.repo.Repository
 import learnat.repo.RepositoryRecord
@@ -25,6 +27,8 @@ import learnat.syntax.Handle
 import learnat.syntax.Nsid
 import learnat.syntax.RecordKey
 import learnat.syntax.TidGenerator
+import learnat.sync.EventBatch
+import learnat.sync.RetainedEventLog
 
 /** A startup/configuration failure before the local PDS begins accepting requests. */
 final case class LocalPdsError(message: String):
@@ -39,6 +43,7 @@ final case class LocalPdsConfig(
     workerThreads: Int = 4,
     maxJsonBodyBytes: Int = 1024 * 1024,
     maxBlobBytes: Int = 5 * 1024 * 1024,
+    eventRetention: Int = 1000,
     dataDirectory: Option[Path] = None
 )
 
@@ -60,6 +65,12 @@ final class RunningLocalPds private[pds] (
   /** Returns the immutable current repository snapshot for local inspection. */
   def repository: Repository = state.currentRepository
 
+  /** Reads retained canonical events for a local subscriber transport. */
+  def eventsAfter(
+      cursor: Option[Long],
+      limit: Int = 100
+  ): Either[learnat.sync.SyncError, EventBatch] = state.eventLog.readAfter(cursor, limit)
+
   /** Stops accepting requests and interrupts the bounded worker pool. */
   override def close(): Unit =
     server.stop(0)
@@ -75,6 +86,7 @@ object LocalPds:
     else if config.maxJsonBodyBytes < 1 then
       Left(LocalPdsError("maxJsonBodyBytes must be positive"))
     else if config.maxBlobBytes < 1 then Left(LocalPdsError("maxBlobBytes must be positive"))
+    else if config.eventRetention < 1 then Left(LocalPdsError("eventRetention must be positive"))
     else
       var server: Option[HttpServer] = None
       var executor: Option[ExecutorService] = None
@@ -106,10 +118,12 @@ object LocalPds:
             repository <- Repository
               .create(did, signingKey, TidGenerator.system(), initialRecords, previousRevision).left
               .map(error => LocalPdsError(error.toString))
+            eventLog <- RetainedEventLog.create(config.eventRetention).left
+              .map(error => LocalPdsError(error.message))
             _ <- store
               .fold[Either[LocalPdsError, Unit]](Right(()))(_.save(did, signingKey, repository))
-          yield (did, signingKey, verifiedPassword, repository, store)
-        initialized.map { (did, signingKey, verifiedPassword, repository, store) =>
+          yield (did, signingKey, verifiedPassword, repository, store, eventLog)
+        initialized.map { (did, signingKey, verifiedPassword, repository, store, eventLog) =>
           val state = LocalPdsState(
             did,
             config.handle,
@@ -120,7 +134,8 @@ object LocalPds:
             TidGenerator.system(),
             repository,
             store,
-            blobStore
+            blobStore,
+            eventLog
           )
           val createdExecutor = Executors.newFixedThreadPool(config.workerThreads)
           executor = Some(createdExecutor)
@@ -159,7 +174,8 @@ final private class LocalPdsState(
     val recordKeyGenerator: TidGenerator,
     private var repositoryState: Repository,
     val store: Option[LocalPdsStore],
-    val blobStore: BlobStore
+    val blobStore: BlobStore,
+    val eventLog: RetainedEventLog
 ):
   def currentRepository: Repository = synchronized(repositoryState)
 
@@ -167,14 +183,55 @@ final private class LocalPdsState(
     for
       updated <- repositoryState.applyWrite(write).left
         .map(error => PdsFailure(400, "InvalidRequest", error.message))
-      _ <- store
-        .fold[Either[PdsFailure, Unit]](Right(()))(_.save(did, signingKey, updated).left.map(
-          error => PdsFailure(500, "InternalServerError", error.message)
-        ))
+      body <- commitEvent(repositoryState, updated, write)
+      event <- eventLog.append("#commit", body).left
+        .map(error => PdsFailure(500, "InternalServerError", error.message))
+      _ <- persistOrRollback(updated, event.sequence)
     yield
       repositoryState = updated
       updated
   }
+
+  private def persistOrRollback(updated: Repository, sequence: Long): Either[PdsFailure, Unit] =
+    store.fold[Either[PdsFailure, Unit]](Right(()))(_.save(did, signingKey, updated).left.map(
+      error => PdsFailure(500, "InternalServerError", error.message)
+    )) match
+      case success @ Right(_) => success
+      case Left(failure)      => eventLog.rollbackLast(sequence) match
+          case Right(_)       => Left(failure)
+          case Left(rollback) => Left(PdsFailure(
+              500,
+              "InternalServerError",
+              s"${failure.message}; event rollback failed: ${rollback.message}"
+            ))
+
+  private def commitEvent(
+      previous: Repository,
+      updated: Repository,
+      write: RepositoryWrite
+  ): Either[PdsFailure, Ipld] =
+    val (action, collection, recordKey) = write match
+      case RepositoryWrite.Create(record)     => ("create", record.collection, record.recordKey)
+      case RepositoryWrite.Put(record)        => ("update", record.collection, record.recordKey)
+      case RepositoryWrite.Delete(value, key) => ("delete", value, key)
+    val cid = updated.reference(collection, recordKey).map(_._2)
+    updated.exportCar.left.map(error => PdsFailure(500, "InternalServerError", error.message))
+      .map { car =>
+        Ipld.obj(
+          "repo" -> Ipld.Text(did.value),
+          "commit" -> Ipld.Link(updated.commitCid),
+          "rev" -> Ipld.Text(updated.commit.rev.value),
+          "since" -> Ipld.Text(previous.commit.rev.value),
+          "rebase" -> Ipld.Bool(false),
+          "tooBig" -> Ipld.Bool(false),
+          "blocks" -> Ipld.Bytes(ByteString(car)),
+          "ops" -> Ipld.list(Ipld.obj(
+            "action" -> Ipld.Text(action),
+            "path" -> Ipld.Text(s"${collection.value}/${recordKey.value}"),
+            "cid" -> cid.fold[Ipld](Ipld.Null)(Ipld.Link.apply)
+          ))
+        )
+      }
 
 private object LocalPdsState:
   def apply(
@@ -187,7 +244,8 @@ private object LocalPdsState:
       recordKeyGenerator: TidGenerator,
       repository: Repository,
       store: Option[LocalPdsStore],
-      blobStore: BlobStore
+      blobStore: BlobStore,
+      eventLog: RetainedEventLog
   ): LocalPdsState = new LocalPdsState(
     did,
     handle,
@@ -198,7 +256,8 @@ private object LocalPdsState:
     recordKeyGenerator,
     repository,
     store,
-    blobStore
+    blobStore,
+    eventLog
   )
 
 final private case class PdsFailure(status: Int, code: String, message: String)

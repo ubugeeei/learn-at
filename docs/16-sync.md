@@ -125,6 +125,14 @@ explicit error instead of silently skipping changes. Batches are capped at
 1,000 events and return defensive byte copies so a subscriber cannot mutate the
 producer log.
 
+The local PDS now constructs a `#commit` event inside the same synchronized
+state transition as each repository create, update, or delete. The event
+contains the DID, commit CID, revision, previous revision, operation path/CID,
+and a complete CAR block slice. Encoding/append happens before persistence. If
+repository persistence fails, only the unpublished tail event is rolled back;
+the current in-memory head is not advanced. A non-tail rollback is rejected so
+concurrent publication cannot erase another write.
+
 The callback still receives generic IPLD. A later application layer should
 dispatch on the event type and validate its body against the corresponding
 Lexicon schema before applying it.

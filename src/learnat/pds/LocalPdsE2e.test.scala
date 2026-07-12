@@ -20,6 +20,8 @@ import learnat.syntax.Handle
 import learnat.syntax.Nsid
 import learnat.syntax.RecordKey
 import learnat.tests.TestKit.*
+import learnat.sync.EventFrame
+import learnat.sync.EventStreamCodec
 
 object LocalPdsE2eTests:
   private val handle = Handle.parse("alice.test").toOption.get
@@ -85,6 +87,18 @@ object LocalPdsE2eTests:
         val read = client.getRecord(AtIdentifier.DidIdentifier(pds.did), collection, key)
         equal(read.map(_.cid), created.map(_.cid))
         equal(read.map(_.value), Right(note("first")))
+
+        val events = pds.eventsAfter(None).toOption.get.events
+        equal(events.map(_.sequence), Vector(1L))
+        val frame = EventStreamCodec.decode(events.head.bytes).toOption.get
+        frame match
+          case EventFrame.Message("#commit", Ipld.Map(fields)) =>
+            val body = fields.toMap
+            equal(body.get("seq"), Some(Ipld.Integer(1)))
+            equal(body.get("repo"), Some(Ipld.Text(pds.did.value)))
+            equal(body.get("commit"), created.toOption.get.commitCid.map(Ipld.Link.apply))
+            assert(body.get("blocks").exists(_.isInstanceOf[Ipld.Bytes]))
+          case other => assert(false, s"unexpected event frame: $other")
       }
 
       test("paginates, replaces, and deletes repository records") {

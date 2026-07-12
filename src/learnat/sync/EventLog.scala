@@ -61,6 +61,16 @@ final class RetainedEventLog private (capacity: Int):
             ))
     }
 
+  /** Rolls back only the newest unpublished event while the producer transaction is locked. */
+  private[learnat] def rollbackLast(sequence: Long): Either[SyncError, Unit] = synchronized {
+    retained.lastOption match
+      case Some(event) if event.sequence == sequence && nextSequence == sequence + 1 =>
+        retained = retained.dropRight(1)
+        nextSequence = sequence
+        Right(())
+      case _ => Left(SyncError(s"cannot roll back non-tail event sequence $sequence"))
+  }
+
 object RetainedEventLog:
   def create(capacity: Int): Either[SyncError, RetainedEventLog] = Either.cond(
     capacity > 0,

@@ -52,3 +52,13 @@ object EventLogTests:
       isLeft(log.readAfter(None, limit = 0))
       isLeft(RetainedEventLog.create(0))
     }
+
+    test("rolls back only the unpublished tail event") {
+      val log = RetainedEventLog.create(3).toOption.get
+      val first = log.append("#commit", Ipld.obj()).toOption.get
+      val second = log.append("#commit", Ipld.obj()).toOption.get
+      isLeft(log.rollbackLast(first.sequence))
+      equal(log.rollbackLast(second.sequence), Right(()))
+      equal(log.readAfter(None).map(_.events.map(_.sequence)), Right(Vector(1L)))
+      equal(log.append("#commit", Ipld.obj()).map(_.sequence), Right(2L))
+    }

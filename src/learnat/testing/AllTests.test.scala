@@ -17,6 +17,7 @@ object AllTests:
     InteropCryptoTests.run()
     RepositoryTests.run()
     AuthTests.run()
+    BlobStoreTests.run()
     OAuthTests.run()
     AtpClientTests.run()
     learnat.client.RetryTests.run()

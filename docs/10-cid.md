@@ -7,7 +7,7 @@ content matches a CID. Understand a CID as a self-describing content address,
 not a database identifier.
 
 Implementation: `Cid`, `Varint`, and `Base32` in
-`src/main/scala/learnat/ipld/Ipld.scala`
+`src/learnat/ipld/Ipld.scala`
 
 ## CIDv1 bytes
 

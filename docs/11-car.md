@@ -5,7 +5,7 @@
 Put root CIDs and blocks into one binary archive and verify every content hash
 while reading. Understand why a repository export is not a JSON dump.
 
-Implementation: `src/main/scala/learnat/ipld/Car.scala`
+Implementation: `src/learnat/ipld/Car.scala`
 
 ## CAR's role
 

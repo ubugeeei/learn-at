@@ -9,6 +9,11 @@ lazy val root = project
   .in(file("."))
   .settings(
     name := "learn-at",
+    Compile / unmanagedSources :=
+      ((baseDirectory.value / "src") ** "*.scala").get.filterNot(_.getName.endsWith(".test.scala")),
+    Compile / run / mainClass := Some("learnat.LearnAt"),
+    Test / unmanagedSources := ((baseDirectory.value / "src") ** "*.test.scala").get,
+    Test / unmanagedResourceDirectories := Seq(baseDirectory.value / "src" / "test" / "resources"),
     scalacOptions ++= Seq(
       "-deprecation",
       "-feature",

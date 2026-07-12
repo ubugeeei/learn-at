@@ -1,6 +1,7 @@
 package learnat
 
-object Main:
+/** The single, user-facing entry point for the learning project. */
+object LearnAt:
   def main(args: Array[String]): Unit =
     val command = args.headOption.getOrElse("help")
     command match
@@ -17,10 +18,15 @@ object Main:
       """learn-at — understand AT Protocol by implementing it in Scala 3
         |
         |usage:
-        |  learn-at help
-        |  learn-at pds [port]
-        |  learn-at client <get|list|post|export> ...
+        |  sbt run
+        |  sbt "run pds [port]"
+        |  sbt "run client <get|list|post|export> ..."
         |
-        |Start the hands-on guide at docs/00-learning-path.md.
+        |commands:
+        |  help                 show this map
+        |  pds [port]           start the local teaching PDS
+        |  client ...           call a PDS from the teaching client
+        |
+        |Read README.md first, then continue at docs/00-learning-path.md.
         |""".stripMargin
     )

@@ -6,7 +6,7 @@ Starting from a user-supplied handle, discover the DID, DID document, PDS, and
 repository signing key. Explain with code and an attack example why one-way name
 resolution is not account authentication.
 
-Implementation: `src/main/scala/learnat/identity/Identity.scala`
+Implementation: `src/learnat/identity/Identity.scala`
 
 ## The resolution graph
 

@@ -6,7 +6,7 @@ Distinguish handles, DIDs, NSIDs, record keys, AT URIs, and TIDs, then convert
 untrusted strings into validated types. Explain what each identifies, whether it
 can change, and why validation is not resolution.
 
-Implementation: `src/main/scala/learnat/syntax/Identifiers.scala`
+Implementation: `src/learnat/syntax/Identifiers.scala`
 
 ## Syntax validation is not resolution
 

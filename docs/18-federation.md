@@ -146,26 +146,26 @@ Start two independent local servers in separate terminals:
 $ LEARN_AT_PASSWORD=alice-secret \
   LEARN_AT_HANDLE=alice.test \
   LEARN_AT_DATA=data/alice \
-  nix develop --command sbt "runMain learnat.Main pds 2583"
+  nix develop --command sbt "run pds 2583"
 ```
 
 ```console
 $ LEARN_AT_PASSWORD=bob-secret \
   LEARN_AT_HANDLE=bob.test \
   LEARN_AT_DATA=data/bob \
-  nix develop --command sbt "runMain learnat.Main pds 2584"
+  nix develop --command sbt "run pds 2584"
 ```
 
 Write one record to each:
 
 ```console
 $ LEARN_AT_PASSWORD=alice-secret nix develop --command sbt \
-  'runMain learnat.Main client post http://localhost:2583 alice.test com.example.note "from Alice"'
+  'run client post http://localhost:2583 alice.test com.example.note "from Alice"'
 ```
 
 ```console
 $ LEARN_AT_PASSWORD=bob-secret nix develop --command sbt \
-  'runMain learnat.Main client post http://localhost:2584 bob.test com.example.note "from Bob"'
+  'run client post http://localhost:2584 bob.test com.example.note "from Bob"'
 ```
 
 List each collection and export both CAR files. Confirm:

@@ -4,6 +4,7 @@ import java.net.URI
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import learnat.client.AtpClient
 import learnat.client.ClientMain
 import learnat.identity.IdentityResolver
@@ -85,6 +86,23 @@ object LocalPdsE2eTests:
         equal(verified.map(_.records.length), Right(2))
       }
 
+      test("verifies an exported CAR against the currently resolved DID key") {
+        val carFile = Files.createTempFile("learn-at-repository", ".car")
+        try
+          Files.write(carFile, client.getRepo(pds.did).toOption.get)
+          val (status, output, error) = runCli(
+            Array("verify", pds.did.value, carFile.toString, "--allow-http-local"),
+            Map.empty
+          )
+          equal(status, 0)
+          equal(error, "")
+          val result = Json.parse(output).toOption.get
+          equal(result.field("verified").flatMap(_.asBoolean), Right(true))
+          equal(result.field("did").flatMap(_.asString), Right(pds.did.value))
+          assert(result.field("records").flatMap(_.asLong).exists(_ >= 1))
+        finally Files.deleteIfExists(carFile)
+      }
+
       test("serves a resolvable localhost did:web document") {
         val resolver = IdentityResolver(
           JdkIdentityNetwork.default,
@@ -125,6 +143,70 @@ object LocalPdsE2eTests:
         val listed = Json.parse(output.toString(StandardCharsets.UTF_8)).toOption.get
         assert(listed.field("records").flatMap(_.asArray).exists(_.nonEmpty))
       }
+
+      test("runs file-based create, put, paginated list, and delete CLI commands") {
+        val recordFile = Files.createTempFile("learn-at-record", ".json")
+        try
+          Files.writeString(recordFile, noteJson("created from a file").render)
+          val (createStatus, created, createError) = runCli(
+            Array("create", pds.service.toString, handle.value, collection.value, recordFile.toString, "cli-record"),
+            Map("LEARN_AT_PASSWORD" -> "test-password")
+          )
+          equal(createStatus, 0)
+          equal(createError, "")
+          assert(Json.parse(created).flatMap(_.field("cid")).isRight)
+
+          Files.writeString(recordFile, noteJson("updated from a file").render)
+          val (putStatus, _, putError) = runCli(
+            Array("put", pds.service.toString, handle.value, collection.value, "cli-record", recordFile.toString),
+            Map("LEARN_AT_PASSWORD" -> "test-password")
+          )
+          equal(putStatus, 0)
+          equal(putError, "")
+
+          val (listStatus, listedText, listError) = runCli(
+            Array("list", pds.service.toString, pds.did.value, collection.value, "--limit", "1", "--reverse"),
+            Map.empty
+          )
+          equal(listStatus, 0)
+          equal(listError, "")
+          val listed = Json.parse(listedText).toOption.get
+          equal(listed.field("records").flatMap(_.asArray).map(_.length), Right(1))
+
+          val (deleteStatus, deletedText, deleteError) = runCli(
+            Array("delete", pds.service.toString, handle.value, collection.value, "cli-record"),
+            Map("LEARN_AT_PASSWORD" -> "test-password")
+          )
+          equal(deleteStatus, 0)
+          equal(deleteError, "")
+          equal(Json.parse(deletedText).flatMap(_.field("deleted")).flatMap(_.asBoolean), Right(true))
+          isLeft(client.getRecord(
+            AtIdentifier.DidIdentifier(pds.did),
+            collection,
+            RecordKey.parse("cli-record").toOption.get
+          ))
+        finally Files.deleteIfExists(recordFile)
+      }
+
+      test("rejects unsafe CLI record files and list options") {
+        val recordFile = Files.createTempFile("learn-at-invalid-record", ".json")
+        try
+          Files.writeString(recordFile, "[1,2,3]")
+          val (status, _, error) = runCli(
+            Array("create", pds.service.toString, handle.value, collection.value, recordFile.toString),
+            Map("LEARN_AT_PASSWORD" -> "test-password")
+          )
+          equal(status, 2)
+          assert(error.contains("must be a JSON object"), error)
+
+          val (listStatus, _, listError) = runCli(
+            Array("list", pds.service.toString, pds.did.value, collection.value, "--limit", "1000"),
+            Map.empty
+          )
+          equal(listStatus, 2)
+          assert(listError.contains("1 to 100"), listError)
+        finally Files.deleteIfExists(recordFile)
+      }
     }
 
   private def withPds(body: learnat.pds.RunningLocalPds => Unit): Unit =
@@ -139,3 +221,15 @@ object LocalPdsE2eTests:
     "text" -> Ipld.Text(text),
     "createdAt" -> Ipld.Text("2026-07-10T00:00:00.000Z")
   )
+
+  private def noteJson(text: String): Json = Json.obj(
+    "$type" -> Json.Str(collection.value),
+    "text" -> Json.Str(text),
+    "createdAt" -> Json.Str("2026-07-10T00:00:00.000Z")
+  )
+
+  private def runCli(args: Array[String], environment: Map[String, String]): (Int, String, String) =
+    val output = ByteArrayOutputStream()
+    val errors = ByteArrayOutputStream()
+    val status = ClientMain.run(args, environment, PrintStream(output), PrintStream(errors))
+    (status, output.toString(StandardCharsets.UTF_8).trim, errors.toString(StandardCharsets.UTF_8).trim)

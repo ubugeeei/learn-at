@@ -6,8 +6,8 @@ Use the identifier, identity, XRPC, JSON/IPLD, and CAR layers through a client A
 
 Implementation:
 
-- `src/main/scala/learnat/client/AtpClient.scala`
-- `src/main/scala/learnat/client/ClientMain.scala`
+- `src/learnat/client/AtpClient.scala`
+- `src/learnat/client/ClientMain.scala`
 
 ## Known service versus discovery
 
@@ -58,29 +58,93 @@ Legacy sessions are included because their single request makes the first auth b
 Start the local PDS in one terminal:
 
 ```console
-$ LEARN_AT_PASSWORD=local-secret nix develop --command sbt "runMain learnat.Main pds 2583"
+$ LEARN_AT_PASSWORD=local-secret nix develop --command sbt "run pds 2583"
 ```
 
 Read and list records:
 
 ```console
 $ nix develop --command sbt \
-    "runMain learnat.Main client list http://localhost:2583 did:web:localhost%3A2583 com.example.note"
+    "run client list http://localhost:2583 did:web:localhost%3A2583 com.example.note"
 ```
 
 Create a record. The password comes from the environment, not argv:
 
 ```console
 $ LEARN_AT_PASSWORD=local-secret nix develop --command sbt \
-    'runMain learnat.Main client post http://localhost:2583 alice.test com.example.note "hello from Scala"'
+    'run client post http://localhost:2583 alice.test com.example.note "hello from Scala"'
 ```
+
+`post` is a convenience command for the first exercise. For real record work,
+put the complete DAG-JSON record in a file so shell quoting cannot alter it:
+
+```json
+{
+  "$type": "com.example.note",
+  "text": "a complete record",
+  "createdAt": "2026-07-12T12:00:00.000Z"
+}
+```
+
+Create with a server-generated TID record key, or provide a stable key as the
+last argument:
+
+```console
+$ LEARN_AT_PASSWORD=local-secret nix develop --command sbt \
+    "run client create http://localhost:2583 alice.test com.example.note record.json"
+$ LEARN_AT_PASSWORD=local-secret nix develop --command sbt \
+    "run client create http://localhost:2583 alice.test com.example.note record.json settings"
+```
+
+Replace and delete the stable record:
+
+```console
+$ LEARN_AT_PASSWORD=local-secret nix develop --command sbt \
+    "run client put http://localhost:2583 alice.test com.example.note settings record.json"
+$ LEARN_AT_PASSWORD=local-secret nix develop --command sbt \
+    "run client delete http://localhost:2583 alice.test com.example.note settings"
+```
+
+The input must be a DAG-JSON object and is limited to 1 MiB before parsing.
+The PDS still performs collection/type and Lexicon validation; accepting JSON
+at the CLI boundary does not bypass repository invariants.
+
+## Traverse a collection
+
+`list` exposes the protocol's bounded page and opaque cursor instead of hiding
+pagination in an unbounded client loop:
+
+```console
+$ nix develop --command sbt \
+    "run client list http://localhost:2583 did:web:localhost%3A2583 com.example.note --limit 25 --reverse"
+$ nix develop --command sbt \
+    "run client list http://localhost:2583 did:web:localhost%3A2583 com.example.note --limit 25 --cursor '<cursor>'"
+```
+
+Limits outside 1–100 and incomplete or unknown options fail before a network
+request. Cursors remain opaque: clients persist and return them unchanged.
 
 Export the complete repository:
 
 ```console
 $ nix develop --command sbt \
-    "runMain learnat.Main client export http://localhost:2583 did:web:localhost%3A2583 backup.car"
+    "run client export http://localhost:2583 did:web:localhost%3A2583 backup.car"
 ```
+
+Do not treat a downloaded CAR as trusted merely because the HTTP request
+succeeded. Resolve the DID document again, obtain its current `#atproto`
+Multikey, verify the commit signature, verify every CID, reconstruct the MST,
+and reject missing or unreachable blocks:
+
+```console
+$ nix develop --command sbt \
+    "run client verify did:plc:example backup.car"
+```
+
+The verifier returns the authenticated DID, commit CID, revision, and record
+count. CAR input is capped at 64 MiB before allocation. Local HTTP DID documents
+are disabled by default; the explicit `--allow-http-local` switch exists only
+for the two-terminal localhost lab.
 
 The dynamic port in a `did:web:localhost%3A...` DID must match the server. Port 2583 is used above to make commands stable.
 
@@ -113,4 +177,3 @@ $ nix develop --command sbt verify
 3. Preserve `XrpcError.Remote` fields in `ClientError` so retry policy can distinguish 400, 401, 429, and 5xx.
 4. Add a session refresh method and test that an access token cannot be used as a refresh token.
 5. Add an OAuth-backed authenticated client without changing public read methods.
-

@@ -15,6 +15,26 @@ Use this loop in every chapter:
 5. Corrupt one byte or field and prove it is rejected.
 6. Separate specification MUST/SHOULD rules from implementation choices.
 
+This is a build-along book, not API documentation for a finished SDK. For each
+chapter, keep the prose and the matching source directory open side by side.
+Read in this order:
+
+1. the chapter's goal and wire example;
+2. the ordinary `.scala` implementation named at the top of the chapter;
+3. its adjacent `.test.scala` file as an executable continuation of the prose;
+4. the chapter's failure experiment and production boundary.
+
+For example, chapter 04 pairs [`json/Json.scala`](../src/learnat/json/Json.scala)
+with [`json/Json.test.scala`](../src/learnat/json/Json.test.scala). The parser is
+the mechanism; the adjacent test explains its contract with concrete input.
+Use `nix develop --command sbt verify` after every experiment.
+
+## Where execution begins
+
+[`LearnAt.scala`](../src/learnat/LearnAt.scala) is the only primary executable
+entry point. `sbt run` prints the command map, `sbt "run pds 2583"` starts the
+teaching PDS, and `sbt "run client ..."` invokes the client.
+
 ## Overview
 
 | Phase | Chapters | Deliverable | What you can explain afterward |

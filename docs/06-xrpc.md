@@ -6,7 +6,7 @@ Translate Lexicon queries and procedures into HTTP requests while distinguishing
 success, protocol errors, malformed responses, and transport failures. Build a
 client core usable by both public and authenticated endpoints.
 
-Implementation: `src/main/scala/learnat/xrpc/Xrpc.scala`
+Implementation: `src/learnat/xrpc/Xrpc.scala`
 
 ## What XRPC defines
 

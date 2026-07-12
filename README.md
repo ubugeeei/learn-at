@@ -15,6 +15,41 @@ order. Every chapter covers:
 - exercises that deliberately break it;
 - the remaining gap before production use.
 
+## Start here
+
+There are three useful entry points. They serve different jobs:
+
+1. [`README.md`](README.md) is the map of the repository.
+2. [`docs/00-learning-path.md`](docs/00-learning-path.md) is the table of
+   contents for the book. Read the chapters in number order.
+3. [`src/learnat/LearnAt.scala`](src/learnat/LearnAt.scala) is the executable
+   entry point. Run it when you want to observe the implementation.
+
+If you want to read code before prose, use the
+[`src/README.md`](src/README.md) source tour. It traces one record through the
+client, validation, repository, cryptography, and storage boundaries.
+
+The source tree is organized by concept, not by build phase. Production code
+and its executable test sit beside each other:
+
+```text
+src/learnat/
+├── LearnAt.scala                 one obvious executable entry point
+├── json/
+│   ├── Json.scala                implementation
+│   └── Json.test.scala           examples, edge cases, and rejection paths
+├── syntax/
+│   ├── Identifiers.scala
+│   ├── Identifiers.test.scala
+│   └── IdentifiersInterop.test.scala
+└── ...                           one directory per protocol concept
+```
+
+The `.test.scala` suffix is the boundary: sbt compiles ordinary `.scala` files
+as the application and adjacent `.test.scala` files as tests. This keeps the
+code you are learning and the evidence for its behavior on the same screen
+without shipping test code in the application.
+
 ## Run it
 
 The development environment is a Nix flake. You do not need to install the JDK,
@@ -28,16 +63,19 @@ $ nix develop --command sbt run
 Run the local client/server exercise:
 
 ```console
-$ LEARN_AT_PASSWORD=local-secret nix develop --command sbt "runMain learnat.Main pds 2583"
+$ LEARN_AT_PASSWORD=local-secret nix develop --command sbt "run pds 2583"
 $ LEARN_AT_PASSWORD=local-secret nix develop --command sbt \
-    'runMain learnat.Main client post http://localhost:2583 alice.test com.example.note "hello"'
+    'run client post http://localhost:2583 alice.test com.example.note "hello"'
 ```
 
 The local PDS persists its development key, records, and last revision under
 `data/local-pds` by default. Keep the same port across restarts because it is
 part of the localhost `did:web` identifier.
 
-Start with the [learning path](docs/00-learning-path.md). See
+Start with the [learning path](docs/00-learning-path.md). Implementation
+chapters point to the matching source and explain why it has its current shape,
+which invariants it enforces, how tests break those invariants, and what is
+still intentionally missing. See
 [the Nix environment chapter](docs/02-environment.md) for setup details and the
 [glossary](docs/glossary.md) whenever a protocol term is unfamiliar.
 

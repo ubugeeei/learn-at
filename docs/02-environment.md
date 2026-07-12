@@ -50,18 +50,22 @@ direnv is optional. Every guide command also works through
 ├── flake.lock                pinned Nixpkgs input
 ├── build.sbt                 Scala version, compiler options, tasks
 ├── project/build.properties  sbt version
-├── src/main/scala            client, PDS, and protocol implementation
-├── src/test/scala            dependency-free test runner
+├── src/learnat               implementation and adjacent *.test.scala files
+│   └── LearnAt.scala         primary executable entry point
+├── src/test/resources        upstream interoperability fixtures
 └── docs                      sequential hands-on guide
 ```
 
 The project adds no test framework. The `verify` task runs
 `learnat.tests.AllTests`; a failed assertion produces a non-zero process exit.
+The build selects files by suffix: `.test.scala` belongs to the test
+configuration, while the other Scala files belong to the application. This is
+why tests can be colocated without being included in the runnable artifact.
 CI runs the same `nix develop --command sbt verify` command.
 
 ## First observation
 
-Display `Main.scala` help:
+Display the `LearnAt.scala` entry-point help:
 
 ```console
 $ nix develop --command sbt run
@@ -69,7 +73,7 @@ $ nix develop --command sbt run
 
 Then prove that the compiler rejects unused imports:
 
-1. Add `import java.time.Instant` to `Main.scala`.
+1. Add `import java.time.Instant` to `src/learnat/LearnAt.scala`.
 2. Run `sbt verify` and inspect the `-Wunused:all` error.
 3. Remove the import and make the suite pass again.
 

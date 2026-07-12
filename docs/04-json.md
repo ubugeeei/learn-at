@@ -5,9 +5,9 @@
 Parse JSON text into a validated tree and render that tree back to text. Treat
 the parser as the protocol's first security boundary.
 
-Implementation: `src/main/scala/learnat/json/Json.scala`
+Implementation: `src/learnat/json/Json.scala`
 
-Tests: `src/test/scala/learnat/tests/JsonTests.scala`
+Tests: `src/learnat/json/Json.test.scala`
 
 ## Why JSON comes first
 

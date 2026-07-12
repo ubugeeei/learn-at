@@ -7,9 +7,9 @@ repository value without confusing schema validation with application policy.
 
 Implementation:
 
-- `src/main/scala/learnat/lexicon/Lexicon.scala`
-- `src/main/scala/learnat/lexicon/LexiconValidator.scala`
-- `src/test/scala/learnat/tests/LexiconTests.scala`
+- `src/learnat/lexicon/Lexicon.scala`
+- `src/learnat/lexicon/LexiconValidator.scala`
+- `src/learnat/lexicon/Lexicon.test.scala`
 
 ## What a Lexicon is
 

@@ -4,7 +4,7 @@
 
 Build the same root CID as the official implementation for the same set of repository paths and record CIDs. Then decode an untrusted tree and prove that its paths, layers, prefix compression, child links, and block hashes are valid.
 
-The implementation is in `src/main/scala/learnat/repo/Mst.scala`.
+The implementation is in `src/learnat/repo/Mst.scala`.
 
 ## Repository keys
 

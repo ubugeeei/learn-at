@@ -6,8 +6,8 @@ Turn typed records into a version-3 signed repository commit and a complete CAR 
 
 The implementation is split across:
 
-- `src/main/scala/learnat/crypto/P256.scala`
-- `src/main/scala/learnat/repo/Repository.scala`
+- `src/learnat/crypto/P256.scala`
+- `src/learnat/repo/Repository.scala`
 
 ## Record to commit pipeline
 

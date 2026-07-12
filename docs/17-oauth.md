@@ -10,10 +10,10 @@ rejection.
 
 Implementations:
 
-- `src/main/scala/learnat/pds/Auth.scala`
-- `src/main/scala/learnat/oauth/OAuth.scala`
-- `src/main/scala/learnat/oauth/AuthorizationFlow.scala`
-- `src/main/scala/learnat/oauth/Dpop.scala`
+- `src/learnat/pds/Auth.scala`
+- `src/learnat/oauth/OAuth.scala`
+- `src/learnat/oauth/AuthorizationFlow.scala`
+- `src/learnat/oauth/Dpop.scala`
 
 ## Two different authentication systems
 

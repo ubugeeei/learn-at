@@ -8,9 +8,9 @@ sync mechanisms.
 
 Implementation:
 
-- `src/main/scala/learnat/sync/Sync.scala`
-- `src/main/scala/learnat/ipld/Ipld.scala`
-- `src/main/scala/learnat/client/AtpClient.scala`
+- `src/learnat/sync/Sync.scala`
+- `src/learnat/ipld/Ipld.scala`
+- `src/learnat/client/AtpClient.scala`
 
 ## Two sync paths
 
@@ -60,7 +60,7 @@ The end-to-end test starts the PDS, synchronizes an empty repository, writes a
 record through the authenticated client, and synchronizes again:
 
 ```console
-$ nix develop --command sbt 'test:runMain learnat.tests.AllTests'
+$ nix develop --command sbt 'verify'
 ```
 
 Look for `Repository synchronization` in the output. Then read

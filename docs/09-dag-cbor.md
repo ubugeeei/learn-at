@@ -7,7 +7,7 @@ content-addressed repository needs a constrained data model and canonical
 encoding instead of hashing ordinary JSON text.
 
 Implementation: `Ipld` and `DagCbor` in
-`src/main/scala/learnat/ipld/Ipld.scala`
+`src/learnat/ipld/Ipld.scala`
 
 ## Requirement for content addressing
 

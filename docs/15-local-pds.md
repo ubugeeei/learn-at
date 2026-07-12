@@ -6,15 +6,15 @@ Host one account, authenticate a client, commit public records, serve repository
 
 Implementation:
 
-- `src/main/scala/learnat/pds/Auth.scala`
-- `src/main/scala/learnat/pds/LocalPds.scala`
+- `src/learnat/pds/Auth.scala`
+- `src/learnat/pds/LocalPds.scala`
 
 ## Start it
 
 ```console
 $ LEARN_AT_PASSWORD=local-secret \
   LEARN_AT_HANDLE=alice.test \
-  nix develop --command sbt "runMain learnat.Main pds 2583"
+  nix develop --command sbt "run pds 2583"
 ```
 
 The server binds to loopback and prints:

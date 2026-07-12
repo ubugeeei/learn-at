@@ -7,6 +7,7 @@ Host one account, authenticate a client, commit public records, serve repository
 Implementation:
 
 - `src/learnat/pds/Auth.scala`
+- `src/learnat/pds/BlobStore.scala`
 - `src/learnat/pds/LocalPds.scala`
 
 ## Start it
@@ -67,12 +68,45 @@ com.atproto.repo.listRecords
 com.atproto.repo.createRecord
 com.atproto.repo.putRecord
 com.atproto.repo.deleteRecord
+com.atproto.repo.uploadBlob
 com.atproto.repo.describeRepo
 com.atproto.sync.getRepo
 com.atproto.sync.getLatestCommit
+com.atproto.sync.getBlob
 ```
 
 Public reads do not require a token. Mutations require an access-scoped bearer token for the hosted DID.
+
+## Blob upload and retrieval
+
+A record remains small and refers to large binary content by a raw CID:
+
+```mermaid
+flowchart LR
+  F["binary file"] -->|"authenticated uploadBlob"| H["SHA-256 + raw CID"]
+  H --> S["atomic blob storage"]
+  H --> R["blob reference<br/>CID + MIME + size"]
+  R --> P["repository record"]
+  P -->|"getBlob by DID + CID"| S
+  S --> V["rehash before response"]
+```
+
+`AuthenticatedAtpClient.uploadBlob` sends the exact bytes with a simple
+`type/subtype` Content-Type. The local PDS caps input at 5 MiB, calculates a raw
+CID, deduplicates identical content, and returns a typed `BlobRef` that can be
+inserted into an IPLD record with `asIpld`.
+
+Persistent mode stores blob bytes and MIME metadata under `data/blobs` using
+write-then-rename replacement. `getBlob` validates the requested hosted DID and
+raw CID. Both the server store and client download recompute the CID before
+returning bytes. Missing sidecars, oversized files, wrong codecs, and modified
+disk content fail closed.
+
+This is a complete local content-addressed path, not a production media
+pipeline. It deliberately lacks image transcoding, MIME sniffing, malware
+scanning, per-account quotas, reference counting, garbage collection, CDN
+delivery, and moderation isolation. Those are separate operational gates in
+chapter 19.
 
 ## Passwords and sessions
 

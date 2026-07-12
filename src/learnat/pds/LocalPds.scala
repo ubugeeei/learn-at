@@ -15,6 +15,7 @@ import java.util.concurrent.Executors
 import learnat.crypto.P256KeyPair
 import learnat.crypto.P256PublicKey
 import learnat.ipld.DagJson
+import learnat.ipld.Cid
 import learnat.json.Json
 import learnat.repo.Repository
 import learnat.repo.RepositoryRecord
@@ -37,6 +38,7 @@ final case class LocalPdsConfig(
     bindAddress: String = "127.0.0.1",
     workerThreads: Int = 4,
     maxJsonBodyBytes: Int = 1024 * 1024,
+    maxBlobBytes: Int = 5 * 1024 * 1024,
     dataDirectory: Option[Path] = None
 )
 
@@ -72,6 +74,7 @@ object LocalPds:
     else if config.workerThreads < 1 then Left(LocalPdsError("workerThreads must be positive"))
     else if config.maxJsonBodyBytes < 1 then
       Left(LocalPdsError("maxJsonBodyBytes must be positive"))
+    else if config.maxBlobBytes < 1 then Left(LocalPdsError("maxBlobBytes must be positive"))
     else
       var server: Option[HttpServer] = None
       var executor: Option[ExecutorService] = None
@@ -85,6 +88,9 @@ object LocalPds:
           try PasswordHash.create(passwordCopy)
           finally Arrays.fill(passwordCopy, '\u0000')
         val store = config.dataDirectory.map(LocalPdsStore(_))
+        val blobStore: BlobStore = config.dataDirectory
+          .map(directory => FileBlobStore(directory.resolve("blobs"), config.maxBlobBytes))
+          .getOrElse(MemoryBlobStore(config.maxBlobBytes))
         val initialized =
           for
             did <- Did.parse(s"did:web:localhost%3A$actualPort").left
@@ -113,12 +119,16 @@ object LocalPds:
             SessionStore.secure(),
             TidGenerator.system(),
             repository,
-            store
+            store,
+            blobStore
           )
           val createdExecutor = Executors.newFixedThreadPool(config.workerThreads)
           executor = Some(createdExecutor)
           createdServer.setExecutor(createdExecutor)
-          createdServer.createContext("/", LocalPdsHandler(state, config.maxJsonBodyBytes))
+          createdServer.createContext(
+            "/",
+            LocalPdsHandler(state, config.maxJsonBodyBytes, config.maxBlobBytes)
+          )
           createdServer.start()
           new RunningLocalPds(
             createdServer,
@@ -148,7 +158,8 @@ final private class LocalPdsState(
     val sessions: SessionStore,
     val recordKeyGenerator: TidGenerator,
     private var repositoryState: Repository,
-    val store: Option[LocalPdsStore]
+    val store: Option[LocalPdsStore],
+    val blobStore: BlobStore
 ):
   def currentRepository: Repository = synchronized(repositoryState)
 
@@ -175,7 +186,8 @@ private object LocalPdsState:
       sessions: SessionStore,
       recordKeyGenerator: TidGenerator,
       repository: Repository,
-      store: Option[LocalPdsStore]
+      store: Option[LocalPdsStore],
+      blobStore: BlobStore
   ): LocalPdsState = new LocalPdsState(
     did,
     handle,
@@ -185,7 +197,8 @@ private object LocalPdsState:
     sessions,
     recordKeyGenerator,
     repository,
-    store
+    store,
+    blobStore
   )
 
 final private case class PdsFailure(status: Int, code: String, message: String)
@@ -201,7 +214,10 @@ private object PdsResponse:
   def text(value: String, contentType: String = "text/plain; charset=utf-8"): PdsResponse =
     PdsResponse(200, contentType, value.getBytes(StandardCharsets.UTF_8))
 
-final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int)
+  def binary(bytes: Array[Byte], contentType: String): PdsResponse =
+    PdsResponse(200, contentType, bytes)
+
+final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int, maxBlobBytes: Int)
     extends HttpHandler:
   override def handle(exchange: HttpExchange): Unit =
     try
@@ -252,11 +268,13 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int)
       case "/xrpc/com.atproto.repo.putRecord" => withMethod(exchange, "POST")(putRecord(exchange))
       case "/xrpc/com.atproto.repo.deleteRecord" =>
         withMethod(exchange, "POST")(deleteRecord(exchange))
+      case "/xrpc/com.atproto.repo.uploadBlob" => withMethod(exchange, "POST")(uploadBlob(exchange))
       case "/xrpc/com.atproto.repo.describeRepo" =>
         withMethod(exchange, "GET")(describeRepo(exchange))
       case "/xrpc/com.atproto.sync.getRepo" => withMethod(exchange, "GET")(getRepo(exchange))
       case "/xrpc/com.atproto.sync.getLatestCommit" =>
         withMethod(exchange, "GET")(getLatestCommit(exchange))
+      case "/xrpc/com.atproto.sync.getBlob" => withMethod(exchange, "GET")(getBlob(exchange))
       case _ => Left(PdsFailure(404, "MethodNotFound", "unknown local PDS endpoint"))
 
   private def describeServer: Either[PdsFailure, PdsResponse] = Right(PdsResponse.json(Json.obj(
@@ -318,6 +336,38 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int)
       _ <- state.sessions.revoke(token).left
         .map(error => PdsFailure(401, "InvalidToken", error.message))
     yield PdsResponse.json(Json.obj())
+
+  private def uploadBlob(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+    for
+      _ <- authorizeAccess(exchange)
+      mime <- Option(exchange.getRequestHeaders.getFirst("Content-Type"))
+        .toRight(PdsFailure(415, "InvalidRequest", "Content-Type is required"))
+      bytes = exchange.getRequestBody.readNBytes(maxBlobBytes + 1)
+      _ <- Either.cond(
+        bytes.length <= maxBlobBytes,
+        (),
+        PdsFailure(413, "PayloadTooLarge", s"blob exceeds $maxBlobBytes bytes")
+      )
+      stored <- state.blobStore.put(mime, bytes).left
+        .map(error => PdsFailure(400, "InvalidRequest", error.message))
+    yield PdsResponse.json(Json.obj(
+      "blob" -> Json.obj(
+        "$type" -> Json.Str("blob"),
+        "ref" -> Json.obj("$link" -> Json.Str(stored.cid.toString)),
+        "mimeType" -> Json.Str(stored.mimeType),
+        "size" -> Json.Num(stored.size)
+      )
+    ))
+
+  private def getBlob(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+    for
+      _ <- validateRepoQuery(exchange, "did")
+      cidText <- queryRequired(exchange, "cid")
+      cid <- Cid.parse(cidText).left.map(error => PdsFailure(400, "InvalidRequest", error.toString))
+      content <- state.blobStore.get(cid).left
+        .map(error => PdsFailure(500, "InternalServerError", error.message))
+      blob <- content.toRight(PdsFailure(404, "BlobNotFound", "blob does not exist"))
+    yield PdsResponse.binary(blob.bytes, blob.metadata.mimeType)
 
   private def getRecord(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
     for

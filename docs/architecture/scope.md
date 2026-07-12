@@ -39,9 +39,10 @@ moderation UI a PDS responsibility.
 - P-256 repository signing;
 - create, put, delete, get, and list records;
 - complete repository CAR export;
+- bounded content-addressed blob upload, persistence, retrieval, and verification;
 - full-CAR polling mirror implemented;
 - legacy session implemented;
-- resumable server firehose, blobs, OAuth server, and multi-account storage
+- resumable server firehose, production media processing, OAuth server, and multi-account storage
   remain explicit future slices.
 
 ### Interoperability client

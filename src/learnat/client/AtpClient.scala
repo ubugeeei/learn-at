@@ -60,6 +60,18 @@ final case class RecordPage(records: Vector[RecordView], cursor: Option[String])
 /** Current repository commit checkpoint returned by the sync API. */
 final case class LatestCommit(cid: Cid, revision: Tid)
 
+/** Typed blob reference returned by `uploadBlob` for embedding in repository records. */
+final case class BlobRef(cid: Cid, mimeType: String, size: Long):
+  def asIpld: Ipld = Ipld.obj(
+    "$type" -> Ipld.Text("blob"),
+    "ref" -> Ipld.Link(cid),
+    "mimeType" -> Ipld.Text(mimeType),
+    "size" -> Ipld.Integer(size)
+  )
+
+/** Verified downloaded blob bytes with the server-declared media type. */
+final case class DownloadedBlob(cid: Cid, mimeType: String, bytes: Array[Byte])
+
 /**
  * Dependency-light AT Protocol client for identity-independent PDS calls.
  *
@@ -125,6 +137,23 @@ final class AtpClient private (val service: URI, private val xrpc: XrpcClient):
       yield LatestCommit(cid, revision)
     }
 
+  /** Downloads a blob and verifies its bytes against the requested raw CID. */
+  def getBlob(did: Did, cid: Cid): Either[ClientError, DownloadedBlob] =
+    if cid.codec != Cid.RawCodec then Left(ClientError("blob CID must use the raw codec"))
+    else
+      nsid("com.atproto.sync.getBlob").flatMap { method =>
+        xrpc.queryBytes(method, Vector("did" -> did.value, "cid" -> cid.toString), accept = "*/*")
+          .left.map(fromXrpc).flatMap { response =>
+            if !cid.verifies(response.body) then
+              Left(ClientError("downloaded blob does not match CID"))
+            else
+              val mime = response.headers.collectFirst {
+                case (name, values) if name.equalsIgnoreCase("Content-Type") => values.headOption
+              }.flatten.getOrElse("application/octet-stream")
+              Right(DownloadedBlob(cid, mime, response.body))
+          }
+      }
+
   private[client] def procedure(
       method: String,
       input: Json,
@@ -136,6 +165,15 @@ final class AtpClient private (val service: URI, private val xrpc: XrpcClient):
       parameters: Vector[(String, String)],
       token: String
   ): Either[ClientError, Json] = callQuery(method, parameters, Some(token))
+
+  private[client] def uploadBlob(
+      mimeType: String,
+      bytes: Array[Byte],
+      token: String
+  ): Either[ClientError, BlobRef] = nsid("com.atproto.repo.uploadBlob").flatMap { method =>
+    xrpc.procedureBytes(method, mimeType, bytes, Some(token)).left.map(fromXrpc)
+      .flatMap(_.json.left.map(fromXrpc)).flatMap(decodeBlobRef)
+  }
 
   private def callQuery(
       method: String,
@@ -226,6 +264,21 @@ final class AtpClient private (val service: URI, private val xrpc: XrpcClient):
           .map(Some.apply)
     }
 
+  private def decodeBlobRef(json: Json): Either[ClientError, BlobRef] =
+    for
+      blob <- json.field("blob").left.map(error => ClientError(error.message))
+      blobType <- stringField(blob, "$type")
+      _ <- Either.cond(blobType == "blob", (), ClientError("blob response has wrong $type"))
+      ref <- blob.field("ref").left.map(error => ClientError(error.message))
+      cidText <- ref.field("$link").flatMap(_.asString).left
+        .map(error => ClientError(error.message))
+      cid <- Cid.parse(cidText).left.map(error => ClientError(error.toString))
+      _ <- Either.cond(cid.codec == Cid.RawCodec, (), ClientError("blob response CID is not raw"))
+      mimeType <- stringField(blob, "mimeType")
+      size <- blob.field("size").flatMap(_.asLong).left.map(error => ClientError(error.message))
+      _ <- Either.cond(size >= 0, (), ClientError("blob response size is negative"))
+    yield BlobRef(cid, mimeType, size)
+
 object AtpClient:
   /** Creates a client for an already-known XRPC service origin. */
   def create(
@@ -278,6 +331,10 @@ final case class AuthenticatedAtpClient(client: AtpClient, session: LegacySessio
    */
   def revokeSession: Either[ClientError, Unit] = client
     .procedure("com.atproto.server.deleteSession", Json.obj(), session.accessJwt).map(_ => ())
+
+  /** Uploads bounded binary content and returns a record-ready typed blob reference. */
+  def uploadBlob(mimeType: String, bytes: Array[Byte]): Either[ClientError, BlobRef] = client
+    .uploadBlob(mimeType, bytes, session.accessJwt)
 
   /** Creates a record; omitting rkey lets the PDS generate a TID. */
   def createRecord(

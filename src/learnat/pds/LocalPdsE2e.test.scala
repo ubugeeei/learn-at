@@ -55,6 +55,27 @@ object LocalPdsE2eTests:
         .login(AtIdentifier.HandleIdentifier(handle), "test-password".toCharArray).toOption.get
       var generatedKey: Option[RecordKey] = None
 
+      test("uploads and independently verifies content-addressed blobs") {
+        val bytes = "binary image payload".getBytes(StandardCharsets.UTF_8)
+        val uploaded = authenticated.uploadBlob("image/png", bytes)
+        assert(uploaded.isRight, uploaded)
+        equal(uploaded.map(_.size), Right(bytes.length.toLong))
+        val downloaded = uploaded.flatMap(blob => client.getBlob(pds.did, blob.cid))
+        equal(downloaded.map(_.bytes.toVector), Right(bytes.toVector))
+        equal(downloaded.map(_.mimeType), Right("image/png"))
+        equal(
+          uploaded.map(_.asIpld),
+          uploaded.map(blob =>
+            Ipld.obj(
+              "$type" -> Ipld.Text("blob"),
+              "ref" -> Ipld.Link(blob.cid),
+              "mimeType" -> Ipld.Text("image/png"),
+              "size" -> Ipld.Integer(bytes.length)
+            )
+          )
+        )
+      }
+
       test("creates a record with a server-generated TID key") {
         val created = authenticated.createRecord(collection, note("first"))
         assert(created.isRight, created)

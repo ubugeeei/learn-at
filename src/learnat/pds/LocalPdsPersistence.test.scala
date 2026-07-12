@@ -36,6 +36,8 @@ object LocalPdsPersistenceTests:
         val authenticated = client.login(AtIdentifier.HandleIdentifier(handle), password.clone())
           .toOption.get
         assert(authenticated.putRecord(collection, key, note("survives restart")).isRight)
+        val blobBytes = "persistent blob".getBytes(StandardCharsets.UTF_8)
+        val blob = authenticated.uploadBlob("application/octet-stream", blobBytes).toOption.get
         first.close()
 
         val second = LocalPds.start(
@@ -52,6 +54,10 @@ object LocalPdsPersistenceTests:
           )
           val car = restoredClient.getRepo(did).toOption.get
           assert(RepositoryVerifier.verifyCar(car, did, publicKey).isRight)
+          equal(
+            restoredClient.getBlob(did, blob.cid).map(_.bytes.toVector),
+            Right(blobBytes.toVector)
+          )
         finally second.close()
       }
     }

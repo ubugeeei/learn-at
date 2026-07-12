@@ -22,6 +22,31 @@ trait BlobStore:
   /** Loads bytes only if their raw CID still matches the requested content address. */
   def get(cid: Cid): Either[LocalPdsError, Option[BlobContent]]
 
+/** Bounded in-memory blob store used only by ephemeral local PDS tests and processes. */
+final class MemoryBlobStore(maxBlobBytes: Int = 5 * 1024 * 1024) extends BlobStore:
+  private var values = Map.empty[Cid, BlobContent]
+
+  def put(mimeType: String, bytes: Array[Byte]): Either[LocalPdsError, StoredBlob] = synchronized {
+    for
+      mime <- FileBlobStore.validateMimeType(mimeType)
+      _ <- Either
+        .cond(bytes.length <= maxBlobBytes, (), LocalPdsError(s"blob exceeds $maxBlobBytes bytes"))
+      cid = Cid.forRaw(bytes)
+      metadata = StoredBlob(cid, mime, bytes.length.toLong)
+    yield
+      values = values.updated(cid, BlobContent(metadata, bytes.clone()))
+      metadata
+  }
+
+  def get(cid: Cid): Either[LocalPdsError, Option[BlobContent]] = synchronized {
+    if cid.codec != Cid.RawCodec then Left(LocalPdsError("blob CID must use the raw codec"))
+    else Right(values.get(cid).map(value => value.copy(bytes = value.bytes.clone())))
+  }
+
+object MemoryBlobStore:
+  def apply(maxBlobBytes: Int = 5 * 1024 * 1024): MemoryBlobStore =
+    new MemoryBlobStore(maxBlobBytes)
+
 /**
  * File-backed content-addressed blob store.
  *
@@ -91,7 +116,7 @@ object FileBlobStore:
   def apply(directory: Path, maxBlobBytes: Int = 5 * 1024 * 1024): FileBlobStore =
     new FileBlobStore(directory, maxBlobBytes)
 
-  private def validateMimeType(value: String): Either[LocalPdsError, String] =
+  private[pds] def validateMimeType(value: String): Either[LocalPdsError, String] =
     val normalized = value.trim.toLowerCase(java.util.Locale.ROOT)
     Either.cond(
       normalized.length <= MaxMimeBytes && Mime.matches(normalized),

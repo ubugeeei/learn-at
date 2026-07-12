@@ -61,7 +61,7 @@ flowchart LR
 | Merkle Search Tree | `12-mst.md` | `repo/Mst.scala` | canonical fixture and tamper tests in `repo/Mst.test.scala` | covered |
 | P-256 and signed repository | `13-signed-repository.md` | `crypto/P256.scala`, `repo/Repository.scala` | official crypto and repository tests | covered |
 | typed client and CLI | `14-client.md` | `client/` | adjacent CLI tests and real-socket PDS E2E tests | covered |
-| persistent local PDS | `15-local-pds.md` | `pds/` | auth, persistence, corruption, and E2E tests | covered for one account |
+| persistent local PDS and blobs | `15-local-pds.md` | `pds/` | auth, record/blob persistence, corruption, and E2E tests | covered for one account |
 | full-CAR mirror, event decoding, durable cursor | `16-sync.md` | `sync/Sync.scala`, `sync/CursorStore.scala` | mirror, framing, corruption, and crash-boundary tests | covered; producer excluded below |
 | OAuth/DPoP protocol primitives | `17-oauth.md` | `oauth/` | discovery, binding, replay, nonce, and signature tests | covered as primitives |
 | federation roles and lab | `18-federation.md` | two-PDS isolation and sync components | PDS E2E and sync suites | covered as a lab |
@@ -101,7 +101,7 @@ These are not hidden TODOs. They are separate systems or production milestones:
 | Excluded capability | Why it is not honestly completed here | Where to continue |
 | --- | --- | --- |
 | multi-account database and concurrent writers | requires transactional schema, migrations, locking, quota, and recovery design | chapter 19, gates 3–5 |
-| blob upload/serving pipeline | requires storage lifecycle, MIME verification, malware/media isolation, quotas, and garbage collection | chapters 15 and 19 |
+| production media processing | local content-addressed upload/get is covered; MIME sniffing, malware isolation, quotas, reference GC, and CDN lifecycle require an operated pipeline | chapters 15 and 19 |
 | local WebSocket firehose producer | consumer framing is covered, but durable event retention and cursor policy must be designed together | chapter 16 exercises |
 | incremental repository application | full verified resync is the implemented recovery oracle; incremental operations need durable idempotency | chapter 16 |
 | browser OAuth authorization service | primitives are covered; UI sessions, consent, client metadata policy, recovery, and abuse controls are an internet service | chapter 17 and chapter 19 gate 6 |

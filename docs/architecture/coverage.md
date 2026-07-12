@@ -83,7 +83,7 @@ The implementation is divided into these public boundaries:
 | `LexiconValidator` | schema registry and value | validated value plus warnings | unresolved/cyclic refs, wrong type/range/format |
 | `DagCbor` / `Cid` / `Car` | IPLD or untrusted bytes | canonical blocks and verified archives | non-canonical bytes, hash mismatch, duplicate/oversized blocks |
 | `Mst` / `RepositoryVerifier` | record paths, blocks, key | reachable authenticated repository | wrong layer/path/CID/signature/DID, missing or extra blocks |
-| `AtpClient` | service or resolved identity | typed reads/writes and structured retry evidence | malformed responses, invalid identifier/data, typed remote/transport failures |
+| `AtpClient` | service or resolved identity | typed reads/writes, structured errors, bounded idempotent retry | malformed responses, invalid data, typed remote/transport failure, exhaustion/cancellation |
 | `AuthenticatedAtpClient` | immutable legacy session | writes, refresh replacement, revocation | wrong scope, expired/reused/revoked token |
 | `LocalPds` | loopback configuration and requests | persistent one-account repository service | auth, method, size, schema, storage corruption |
 | `RepositoryMirror` | PDS client, DID, public key | atomically replaced verified snapshot | rollback/future revision, network, CAR, key, repository failure |

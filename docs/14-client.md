@@ -170,6 +170,13 @@ authentication, and malformed successful responses are not. `retryable` does
 not perform a retry or promise success; callers must still use bounded attempts,
 backoff, jitter, cancellation, and endpoint idempotency rules.
 
+`RetryExecutor` supplies that policy for operations the caller knows are
+idempotent. Its validated `RetryPolicy` caps total attempts and delay, doubles
+the delay between failures, adds bounded jitter, stops on non-retryable errors,
+and preserves thread interruption. It intentionally does not inspect an HTTP
+method: wrapping `createRecord` would be unsafe unless the application provides
+its own idempotency key or stable record key.
+
 Typed decoders reject malformed DID, handle, AT URI, CID, JSON, and DAG-JSON
 values. A 2xx response with the wrong schema is a protocol error, not success.
 
@@ -195,6 +202,6 @@ $ nix develop --command sbt verify
 
 1. Add a `reverse` option to the CLI list command.
 2. Add an export command that immediately verifies the CAR before writing it.
-3. Add bounded exponential backoff with jitter for idempotent queries when
-   `ClientError.retryable` is true.
+3. Add `Retry-After` parsing and choose whether the server hint or local backoff
+   wins when both are present.
 4. Add an OAuth-backed authenticated client without changing public read methods.

@@ -19,6 +19,7 @@ object AllTests:
     AuthTests.run()
     OAuthTests.run()
     AtpClientTests.run()
+    learnat.client.RetryTests.run()
     ClientMainTests.run()
     LocalPdsE2eTests.run()
     LocalPdsPersistenceTests.run()

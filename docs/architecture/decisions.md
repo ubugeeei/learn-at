@@ -54,3 +54,18 @@ clients. OAuth discovery, PKCE, PAR, and DPoP define the final client target.
 Documentation, public help, comments, and test descriptions are English. Tests
 may still use non-ASCII data when Unicode behavior itself is under test, but the
 example must not depend on one natural language.
+
+## ADR-008: Keep protocol routing independent of the HTTP engine
+
+`LocalPdsHandler` consumes a small `PdsHttpExchange` boundary rather than using
+JDK `HttpExchange` throughout its routing and endpoint logic. The current JDK
+21 `HttpServer` adapter remains sufficient for ordinary XRPC, but that JDK
+version closes streams on a `101 Switching Protocols` response and cannot host
+the required `subscribeRepos` WebSocket at the same origin. OpenJDK tracks
+[native upgrade support](https://bugs.openjdk.org/browse/JDK-8368695) for a
+later release.
+
+Do not work around this with a second firehose port or long polling: both would
+teach a wire contract different from atproto. The narrow exchange boundary
+allows replacement by a WebSocket-capable engine while retaining the already
+tested identity, authentication, repository, blob, and error behavior.

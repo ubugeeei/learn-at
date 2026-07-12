@@ -276,9 +276,33 @@ private object PdsResponse:
   def binary(bytes: Array[Byte], contentType: String): PdsResponse =
     PdsResponse(200, contentType, bytes)
 
+private trait PdsHttpExchange:
+  def method: String
+  def uri: URI
+  def requestHeader(name: String): Option[String]
+  def readBody(maximumBytes: Int): Array[Byte]
+  def respond(status: Int, contentType: String, bytes: Array[Byte]): Unit
+  def close(): Unit
+
+final private class JdkPdsHttpExchange(exchange: HttpExchange) extends PdsHttpExchange:
+  def method: String = exchange.getRequestMethod
+  def uri: URI = exchange.getRequestURI
+  def requestHeader(name: String): Option[String] =
+    Option(exchange.getRequestHeaders.getFirst(name))
+  def readBody(maximumBytes: Int): Array[Byte] = exchange.getRequestBody.readNBytes(maximumBytes)
+  def respond(status: Int, contentType: String, bytes: Array[Byte]): Unit =
+    exchange.getResponseHeaders.set("Content-Type", contentType)
+    exchange.getResponseHeaders.set("Cache-Control", "no-store")
+    exchange.sendResponseHeaders(status, bytes.length.toLong)
+    exchange.getResponseBody.write(bytes)
+  def close(): Unit = exchange.close()
+
 final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int, maxBlobBytes: Int)
     extends HttpHandler:
   override def handle(exchange: HttpExchange): Unit =
+    handleExchange(new JdkPdsHttpExchange(exchange))
+
+  private def handleExchange(exchange: PdsHttpExchange): Unit =
     try
       val response = route(exchange) match
         case Right(value)  => value
@@ -302,8 +326,8 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
         )
     finally exchange.close()
 
-  private def route(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
-    exchange.getRequestURI.getPath match
+  private def route(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
+    exchange.uri.getPath match
       case "/.well-known/did.json" =>
         withMethod(exchange, "GET")(Right(PdsResponse.json(didDocument)))
       case "/.well-known/atproto-did" =>
@@ -342,7 +366,7 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
     "inviteCodeRequired" -> Json.Bool(false)
   )))
 
-  private def resolveHandle(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+  private def resolveHandle(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
     for
       handle <- queryRequired(exchange, "handle")
       parsed <- Handle.parse(handle).left
@@ -354,7 +378,7 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
       )
     yield PdsResponse.json(Json.obj("did" -> Json.Str(state.did.value)))
 
-  private def createSession(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+  private def createSession(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
     for
       body <- jsonBody(exchange)
       identifier <- stringField(body, "identifier")
@@ -372,36 +396,35 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
       tokens = state.sessions.issue(state.did)
     yield PdsResponse.json(sessionJson(tokens))
 
-  private def getSession(exchange: HttpExchange): Either[PdsFailure, PdsResponse] = authorizeAccess(
-    exchange
-  ).map(_ =>
-    PdsResponse.json(Json.obj(
-      "did" -> Json.Str(state.did.value),
-      "handle" -> Json.Str(state.handle.normalized),
-      "active" -> Json.Bool(true)
-    ))
-  )
+  private def getSession(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
+    authorizeAccess(exchange).map(_ =>
+      PdsResponse.json(Json.obj(
+        "did" -> Json.Str(state.did.value),
+        "handle" -> Json.Str(state.handle.normalized),
+        "active" -> Json.Bool(true)
+      ))
+    )
 
-  private def refreshSession(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+  private def refreshSession(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
     for
       token <- bearer(exchange)
       tokens <- state.sessions.refresh(token).left
         .map(error => PdsFailure(401, "ExpiredToken", error.message))
     yield PdsResponse.json(sessionJson(tokens))
 
-  private def deleteSession(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+  private def deleteSession(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
     for
       token <- bearer(exchange)
       _ <- state.sessions.revoke(token).left
         .map(error => PdsFailure(401, "InvalidToken", error.message))
     yield PdsResponse.json(Json.obj())
 
-  private def uploadBlob(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+  private def uploadBlob(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
     for
       _ <- authorizeAccess(exchange)
-      mime <- Option(exchange.getRequestHeaders.getFirst("Content-Type"))
+      mime <- exchange.requestHeader("Content-Type")
         .toRight(PdsFailure(415, "InvalidRequest", "Content-Type is required"))
-      bytes = exchange.getRequestBody.readNBytes(maxBlobBytes + 1)
+      bytes = exchange.readBody(maxBlobBytes + 1)
       _ <- Either.cond(
         bytes.length <= maxBlobBytes,
         (),
@@ -418,7 +441,7 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
       )
     ))
 
-  private def getBlob(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+  private def getBlob(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
     for
       _ <- validateRepoQuery(exchange, "did")
       cidText <- queryRequired(exchange, "cid")
@@ -428,7 +451,7 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
       blob <- content.toRight(PdsFailure(404, "BlobNotFound", "blob does not exist"))
     yield PdsResponse.binary(blob.bytes, blob.metadata.mimeType)
 
-  private def getRecord(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+  private def getRecord(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
     for
       parameters <- repositoryQuery(exchange, requireRecordKey = true)
       (collection, recordKey) = parameters
@@ -438,7 +461,7 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
       view <- recordJson(repository, record)
     yield PdsResponse.json(view)
 
-  private def listRecords(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+  private def listRecords(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
     for
       _ <- validateRepoQuery(exchange, "repo")
       collectionText <- queryRequired(exchange, "collection")
@@ -475,7 +498,7 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
         nextCursor.map(value => "cursor" -> Json.Str(value))
     yield PdsResponse.json(Json.Obj(fields))
 
-  private def createRecord(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+  private def createRecord(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
     for
       _ <- authorizeAccess(exchange)
       body <- jsonBody(exchange)
@@ -486,7 +509,7 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
       response <- writeResponse(repository, repositoryRecord)
     yield PdsResponse.json(response)
 
-  private def putRecord(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+  private def putRecord(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
     for
       _ <- authorizeAccess(exchange)
       body <- jsonBody(exchange)
@@ -497,7 +520,7 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
       response <- writeResponse(repository, repositoryRecord)
     yield PdsResponse.json(response)
 
-  private def deleteRecord(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+  private def deleteRecord(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
     for
       _ <- authorizeAccess(exchange)
       body <- jsonBody(exchange)
@@ -508,7 +531,7 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
       _ <- state.applyWrite(RepositoryWrite.Delete(collection, recordKey))
     yield PdsResponse.json(Json.obj())
 
-  private def describeRepo(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+  private def describeRepo(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
     for
       _ <- validateRepoQuery(exchange, "repo")
       repository = state.currentRepository
@@ -521,14 +544,14 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
       "handleIsCorrect" -> Json.Bool(true)
     ))
 
-  private def getRepo(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+  private def getRepo(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
     for
       _ <- validateRepoQuery(exchange, "did")
       bytes <- state.currentRepository.exportCar.left
         .map(error => PdsFailure(500, "InternalServerError", error.message))
     yield PdsResponse(200, "application/vnd.ipld.car", bytes)
 
-  private def getLatestCommit(exchange: HttpExchange): Either[PdsFailure, PdsResponse] =
+  private def getLatestCommit(exchange: PdsHttpExchange): Either[PdsFailure, PdsResponse] =
     for
       _ <- validateRepoQuery(exchange, "did")
       repository = state.currentRepository
@@ -538,7 +561,7 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
     ))
 
   private def repositoryQuery(
-      exchange: HttpExchange,
+      exchange: PdsHttpExchange,
       requireRecordKey: Boolean
   ): Either[PdsFailure, (Nsid, RecordKey)] =
     for
@@ -636,16 +659,16 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
     "active" -> Json.Bool(true)
   )
 
-  private def authorizeAccess(exchange: HttpExchange): Either[PdsFailure, Did] = bearer(exchange)
+  private def authorizeAccess(exchange: PdsHttpExchange): Either[PdsFailure, Did] = bearer(exchange)
     .flatMap(token =>
       state.sessions.verifyAccess(token).left
         .map(error => PdsFailure(401, "AuthenticationRequired", error.message))
     )
 
-  private def bearer(exchange: HttpExchange): Either[PdsFailure, String] =
-    Option(exchange.getRequestHeaders.getFirst("Authorization")) match
-      case Some(value) if value.startsWith("Bearer ") && value.length > 7 => Right(value.drop(7))
-      case _ => Left(PdsFailure(401, "AuthenticationRequired", "missing bearer token"))
+  private def bearer(exchange: PdsHttpExchange): Either[PdsFailure, String] = exchange
+    .requestHeader("Authorization") match
+    case Some(value) if value.startsWith("Bearer ") && value.length > 7 => Right(value.drop(7))
+    case _ => Left(PdsFailure(401, "AuthenticationRequired", "missing bearer token"))
 
   private def validateRepoField(json: Json, name: String): Either[PdsFailure, Unit] = stringField(
     json,
@@ -658,7 +681,7 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
     )
   )
 
-  private def validateRepoQuery(exchange: HttpExchange, name: String): Either[PdsFailure, Unit] =
+  private def validateRepoQuery(exchange: PdsHttpExchange, name: String): Either[PdsFailure, Unit] =
     queryRequired(exchange, name).flatMap(value =>
       Either.cond(
         matchesAccount(value),
@@ -673,24 +696,24 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
   private def stringField(json: Json, name: String): Either[PdsFailure, String] = json.field(name)
     .flatMap(_.asString).left.map(error => PdsFailure(400, "InvalidRequest", error.message))
 
-  private def jsonBody(exchange: HttpExchange): Either[PdsFailure, Json] =
-    val contentType = Option(exchange.getRequestHeaders.getFirst("Content-Type")).getOrElse("")
+  private def jsonBody(exchange: PdsHttpExchange): Either[PdsFailure, Json] =
+    val contentType = exchange.requestHeader("Content-Type").getOrElse("")
     if !contentType.toLowerCase(java.util.Locale.ROOT).startsWith("application/json") then
       Left(PdsFailure(415, "InvalidRequest", "Content-Type must be application/json"))
     else
-      val bytes = exchange.getRequestBody.readNBytes(maxJsonBodyBytes + 1)
+      val bytes = exchange.readBody(maxJsonBodyBytes + 1)
       if bytes.length > maxJsonBodyBytes then
         Left(PdsFailure(413, "PayloadTooLarge", s"JSON body exceeds $maxJsonBodyBytes bytes"))
       else
         Json.parse(String(bytes, StandardCharsets.UTF_8)).left
           .map(error => PdsFailure(400, "InvalidRequest", error.toString))
 
-  private def queryRequired(exchange: HttpExchange, name: String): Either[PdsFailure, String] =
+  private def queryRequired(exchange: PdsHttpExchange, name: String): Either[PdsFailure, String] =
     query(exchange).get(name).flatMap(_.headOption).filter(_.nonEmpty)
       .toRight(PdsFailure(400, "InvalidRequest", s"missing query parameter: $name"))
 
-  private def query(exchange: HttpExchange): Map[String, Vector[String]] =
-    Option(exchange.getRequestURI.getRawQuery).toVector.flatMap(_.split("&", -1)).filter(_.nonEmpty)
+  private def query(exchange: PdsHttpExchange): Map[String, Vector[String]] =
+    Option(exchange.uri.getRawQuery).toVector.flatMap(_.split("&", -1)).filter(_.nonEmpty)
       .foldLeft(Map.empty[String, Vector[String]]) { (parameters, pair) =>
         val parts = pair.split("=", 2)
         val name = decodeQuery(parts.head)
@@ -700,17 +723,14 @@ final private class LocalPdsHandler(state: LocalPdsState, maxJsonBodyBytes: Int,
 
   private def decodeQuery(value: String): String = URLDecoder.decode(value, StandardCharsets.UTF_8)
 
-  private def withMethod(exchange: HttpExchange, expected: String)(
+  private def withMethod(exchange: PdsHttpExchange, expected: String)(
       result: => Either[PdsFailure, PdsResponse]
   ): Either[PdsFailure, PdsResponse] =
-    if exchange.getRequestMethod == expected then result
+    if exchange.method == expected then result
     else Left(PdsFailure(405, "MethodNotAllowed", s"expected $expected"))
 
-  private def send(exchange: HttpExchange, response: PdsResponse): Unit =
-    exchange.getResponseHeaders.set("Content-Type", response.contentType)
-    exchange.getResponseHeaders.set("Cache-Control", "no-store")
-    exchange.sendResponseHeaders(response.status, response.bytes.length.toLong)
-    exchange.getResponseBody.write(response.bytes)
+  private def send(exchange: PdsHttpExchange, response: PdsResponse): Unit = exchange
+    .respond(response.status, response.contentType, response.bytes)
 
 object LocalPdsMain:
   /** Starts the learning PDS and waits until the process receives a shutdown signal. */

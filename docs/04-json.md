@@ -5,6 +5,12 @@
 Parse JSON text into a validated tree and render that tree back to text. Treat
 the parser as the protocol's first security boundary.
 
+## Before you start
+
+Required background: the six JSON shapes and `Either` from chapters 00 and 03.
+No AT Protocol terms are required yet. This chapter introduces parser, codec,
+canonical rendering, and resource limit; each is explained before use.
+
 Implementation: `src/learnat/json/Json.scala`
 
 Tests: `src/learnat/json/Json.test.scala`
@@ -55,6 +61,28 @@ general does not universally forbid duplicates, but this implementation rejects
 them as a safe policy for untrusted protocol input.
 
 ## Recursive-descent parser
+
+“Recursive descent” means that the function reading a container calls the same
+value-reading logic for each value inside it. The name is less important than
+the control flow:
+
+```mermaid
+flowchart TD
+  INPUT["input text"] --> NEXT{"next non-space character"}
+  NEXT -->|"object start"| OBJ["read object fields"]
+  NEXT -->|"array start"| ARR["read array items"]
+  NEXT -->|"quote"| STR["read string"]
+  NEXT -->|"digit or minus"| NUM["read number"]
+  NEXT -->|"n, t, or f"| LIT["read null or boolean"]
+  OBJ --> VALUE["read each contained value"]
+  ARR --> VALUE
+  VALUE --> NEXT
+  OBJ --> TREE["validated JSON tree"]
+  ARR --> TREE
+  STR --> TREE
+  NUM --> TREE
+  LIT --> TREE
+```
 
 The parser owns one `offset` and dispatches on the next character:
 

@@ -2,6 +2,10 @@
 
 ## How to use this guide
 
+If client/server, DNS, hashes, public keys, JSON, or schemas are unfamiliar,
+read [the prerequisite chapter](00-prerequisites.md) first. Later chapters do
+not require prior AT Protocol or cryptography knowledge.
+
 The chapters follow dependency order. You do not need to memorize unfamiliar
 terms in advance. At each stage, ask: what is being identified, who asserted
 the value, and which exact bytes are moving?
@@ -37,6 +41,22 @@ teaching PDS, and `sbt "run client ..."` invokes the client.
 
 ## Overview
 
+The dependency order is easier to see as a picture:
+
+```mermaid
+flowchart LR
+  WEB["Web basics<br/>request and response"] --> ID["Identity<br/>name, DID, server"]
+  ID --> API["API data<br/>JSON, XRPC, Lexicon"]
+  API --> BYTES["Repository bytes<br/>DAG-CBOR, CID, CAR"]
+  BYTES --> TREE["Repository state<br/>MST and signed commit"]
+  TREE --> APP["Working system<br/>client, PDS, sync"]
+  APP --> AUTH["Delegated access<br/>OAuth and DPoP"]
+  AUTH --> FED["Many services<br/>Relay and AppView"]
+```
+
+Arrows mean “learn the left box first.” You are never expected to understand a
+box merely because a later chapter mentions its name.
+
 | Phase | Chapters | Deliverable | What you can explain afterward |
 | --- | --- | --- | --- |
 | 0 | 00–03 | environment, mental model, Scala basics | protocol/application boundaries |
@@ -53,6 +73,7 @@ teaching PDS, and `sbt "run client ..."` invokes the client.
 
 ### Phase 0: Build a map
 
+- [Before chapter 01: the minimum background](00-prerequisites.md)
 - [01: The AT Protocol mental model](01-mental-model.md)
 - [02: Build the environment with Nix](02-environment.md)
 - [03: Express invariants with Scala 3](03-scala-foundations.md)

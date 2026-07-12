@@ -40,7 +40,7 @@ An `object` is a single value in the process. It is useful for entry points and
 for companion constructors associated with a class:
 
 ```scala
-object Main:
+object LearnAt:
   def main(args: Array[String]): Unit =
     println("learn-at")
 ```

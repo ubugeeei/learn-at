@@ -15,6 +15,26 @@ Implementations:
 - `src/learnat/oauth/AuthorizationFlow.scala`
 - `src/learnat/oauth/Dpop.scala`
 
+## Before the acronyms
+
+OAuth lets a client receive limited authority without learning the user's
+password. The extra acronyms protect different moments in that flow:
+
+```mermaid
+flowchart LR
+  START["Client starts login"] --> PKCE["PKCE<br/>remember a one-time secret"]
+  PKCE --> PAR["PAR<br/>store request at authorization server"]
+  PAR --> BROWSER["User approves in browser"]
+  BROWSER --> CALLBACK["Callback<br/>verify state and issuer"]
+  CALLBACK --> TOKEN["Access token"]
+  TOKEN --> DPOP["DPoP<br/>prove this client owns the token key"]
+  DPOP --> API["Authorized API request"]
+```
+
+Do not memorize the expansions first. Follow the attack each box prevents: PKCE
+protects a stolen code, state protects a mismatched callback, issuer binding
+protects server confusion, and DPoP makes a copied token insufficient by itself.
+
 ## Two different authentication systems
 
 ### Legacy session

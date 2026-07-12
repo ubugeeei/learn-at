@@ -9,6 +9,20 @@ encoding instead of hashing ordinary JSON text.
 Implementation: `Ipld` and `DagCbor` in
 `src/learnat/ipld/Ipld.scala`
 
+## From a record to a stable fingerprint
+
+```mermaid
+flowchart LR
+  J["record value"] --> I["IPLD value<br/>allowed shapes"]
+  I --> C["canonical DAG-CBOR<br/>one byte encoding"]
+  C --> H["SHA-256 hash"]
+  H --> CID["CID<br/>name for exact bytes"]
+```
+
+“Canonical” means that there is one permitted byte representation for the same
+logical value. Without that middle rule, two encoders could produce different
+hashes for objects that mean the same thing.
+
 ## Requirement for content addressing
 
 These are the same JSON value:

@@ -5,6 +5,35 @@
 Explain AT Protocol as a separation of identity, signed data, hosting,
 distribution, and application views—not merely as “the Bluesky API.”
 
+## Prerequisites and new words
+
+This chapter assumes only the client/server and identity ideas from
+[the prerequisite chapter](00-prerequisites.md). It introduces five actors:
+
+- PDS: stores an account's records and accepts writes;
+- Relay: copies updates from many PDS instances;
+- AppView: builds feeds, search, and threads from copied records;
+- repository: one account's public record collection;
+- commit: a signed checkpoint of that collection.
+
+You do not need to understand CID, DAG-CBOR, MST, or XRPC internals yet. In this
+chapter they are labels on boxes; later chapters open those boxes.
+
+## The whole system in one picture
+
+```mermaid
+flowchart LR
+  U["Person"] -->|"uses"| C["Client app"]
+  C -->|"read and write account data"| P["PDS<br/>account server"]
+  P -->|"publish signed updates"| R["Relay<br/>update collector"]
+  R -->|"forward updates"| A["AppView<br/>feed/search index"]
+  C -->|"request feed or search"| A
+```
+
+For a first reading, remember only this: the PDS owns account storage; the Relay
+copies changes; the AppView makes application-specific views. They may be run by
+different organizations.
+
 ## Five distinct parts
 
 ### 1. Identity

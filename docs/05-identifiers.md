@@ -8,6 +8,23 @@ can change, and why validation is not resolution.
 
 Implementation: `src/learnat/syntax/Identifiers.scala`
 
+## One account, several kinds of name
+
+These values are not competing spellings of one ID. Each answers a different
+question:
+
+```mermaid
+flowchart TB
+  H["Handle<br/>Which readable account name?"] -->|"resolves to"| D["DID<br/>Which stable account?"]
+  D -->|"contains records addressed by"| U["AT URI<br/>Which repository record?"]
+  U --> C["NSID / collection<br/>Which kind of record?"]
+  U --> R["record key<br/>Which record of that kind?"]
+  B["CID<br/>Which exact version of the bytes?"] -. "describes current content" .-> U
+```
+
+Read the diagram top to bottom. A handle may change while the DID remains the
+same; an AT URI may remain the same while an update gives its contents a new CID.
+
 ## Syntax validation is not resolution
 
 `alice.example.com` satisfying handle grammar does not prove that it exists in

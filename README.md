@@ -20,9 +20,11 @@ order. Every chapter covers:
 There are three useful entry points. They serve different jobs:
 
 1. [`README.md`](README.md) is the map of the repository.
-2. [`docs/00-learning-path.md`](docs/00-learning-path.md) is the table of
-   contents for the book. Read the chapters in number order.
-3. [`src/learnat/LearnAt.scala`](src/learnat/LearnAt.scala) is the executable
+2. [`docs/00-prerequisites.md`](docs/00-prerequisites.md) explains the web,
+   identity, hash, signature, JSON, and schema ideas assumed by the book.
+3. [`docs/00-learning-path.md`](docs/00-learning-path.md) is the table of
+   contents. Read the chapters in number order.
+4. [`src/learnat/LearnAt.scala`](src/learnat/LearnAt.scala) is the executable
    entry point. Run it when you want to observe the implementation.
 
 If you want to read code before prose, use the

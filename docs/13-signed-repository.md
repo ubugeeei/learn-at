@@ -25,6 +25,22 @@ record object
 
 Every arrow has a testable byte boundary.
 
+The same pipeline as a responsibility diagram:
+
+```mermaid
+flowchart LR
+  R["typed records"] --> B["DAG-CBOR blocks"]
+  B --> M["MST root<br/>summarizes every path and CID"]
+  M --> C["commit<br/>DID + revision + root"]
+  C --> S["signature<br/>created with private key"]
+  S --> CAR["CAR export<br/>commit and reachable blocks"]
+  K["public key from DID document"] -. "verifies" .-> S
+```
+
+The signature covers the commit, not each record separately. The commit points
+to the MST root, and the tree points to record CIDs, so one verified root connects
+the signature to every reachable record.
+
 ## Record envelope
 
 Repository records are DAG-CBOR maps and must be self-describing.
@@ -124,4 +140,3 @@ The P-256 implementation is educational protocol glue around JCA, not an HSM or 
 
 - [Repository](https://atproto.com/specs/repository)
 - [Cryptography](https://atproto.com/specs/cryptography)
-

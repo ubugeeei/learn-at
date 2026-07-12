@@ -26,4 +26,5 @@ object AllTests:
     LocalPdsPersistenceTests.run()
     SyncTests.run()
     CursorStoreTests.run()
+    EventLogTests.run()
     println(s"${TestKit.count} tests passed")

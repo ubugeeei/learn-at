@@ -99,6 +99,23 @@ enum EventFrame:
 
 /** Canonical event-stream frame decoder, independent from WebSocket transport. */
 object EventStreamCodec:
+  /** Encodes one header/body pair as two concatenated canonical DAG-CBOR values. */
+  def encode(frame: EventFrame): Either[SyncError, Array[Byte]] =
+    val (header, body) = frame match
+      case EventFrame.Message(eventType, body) => Ipld
+          .obj("op" -> Ipld.Integer(1), "t" -> Ipld.Text(eventType)) -> body
+      case EventFrame.Error(name, message) =>
+        val fields = Vector("error" -> Ipld.Text(name)) ++
+          message.map(value => "message" -> Ipld.Text(value))
+        Ipld.obj("op" -> Ipld.Integer(-1)) -> Ipld.obj(fields*)
+    for
+      headerBytes <- DagCbor.encode(header).left.map(error => SyncError(error.toString))
+      bodyBytes <- DagCbor.encode(body).left.map(error => SyncError(error.toString))
+      bytes = headerBytes ++ bodyBytes
+      _ <- Either
+        .cond(bytes.length <= 5 * 1024 * 1024, (), SyncError("encoded event frame exceeds 5 MiB"))
+    yield bytes
+
   /** Decodes exactly two concatenated DAG-CBOR objects: header then body. */
   def decode(bytes: Array[Byte]): Either[SyncError, EventFrame] = DagCbor
     .decodeSequence(bytes, DagCbor.Limits(maxBytes = 5 * 1024 * 1024), maxItems = 2).left

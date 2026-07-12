@@ -10,6 +10,7 @@ Implementation:
 
 - `src/learnat/sync/Sync.scala`
 - `src/learnat/sync/CursorStore.scala`
+- `src/learnat/sync/EventLog.scala`
 - `src/learnat/ipld/Ipld.scala`
 - `src/learnat/client/AtpClient.scala`
 
@@ -100,6 +101,30 @@ preserving the canonical-CBOR checks already used for repository data.
 - rejects unexpected text frames;
 - decodes before invoking application code.
 
+The codec is bidirectional. The producer uses `EventStreamCodec.encode` to emit
+the same canonical `header || body` representation that the consumer decodes.
+
+## Server-side retention and cursor errors
+
+`RetainedEventLog` is the transport-independent producer core:
+
+```mermaid
+flowchart LR
+  W["repository write"] --> E["assign increasing seq"]
+  E --> C["canonical event frame"]
+  C --> Q["bounded retained window"]
+  U["subscriber cursor"] --> Q
+  Q -->|"inside window"| B["bounded event batch"]
+  Q -->|"too old"| OLD["ConsumerTooSlow"]
+  Q -->|"ahead of head"| FUTURE["FutureCursor"]
+```
+
+Sequences start at one and are never reused. When capacity is reached, only the
+oldest event is discarded. A cursor outside the retained window produces an
+explicit error instead of silently skipping changes. Batches are capped at
+1,000 events and return defensive byte copies so a subscriber cannot mutate the
+producer log.
+
 The callback still receives generic IPLD. A later application layer should
 dispatch on the event type and validate its body against the corresponding
 Lexicon schema before applying it.
@@ -164,12 +189,13 @@ must share a stronger external transaction. Tests cover both crash boundaries.
 
 ## What is still missing
 
-This chapter provides a verified full-repository mirror, real WebSocket
-consumer/framing, and durable at-least-once cursor checkpoint. It does not yet
+This chapter provides a verified full-repository mirror, canonical producer and
+consumer framing, bounded server retention, real WebSocket consumer, and durable
+at-least-once cursor checkpoint. It does not yet
 implement incremental commit semantics, blob transfer, local Relay behavior,
-server-side cursor retention, backpressure queues, or the local PDS firehose
-producer. Those omissions are explicit: durable receipt alone is not yet a
-complete indexing service.
+backpressure queues, or connection of the retained log to a local PDS WebSocket
+upgrade. Those omissions are explicit: retention without transactional write
+publication and transport is not yet a complete producer.
 
 ## Specifications
 

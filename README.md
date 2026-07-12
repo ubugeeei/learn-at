@@ -105,6 +105,9 @@ By the end, you should be able to explain, implement, and debug all of these:
 
 Every chapter and the [implementation scope](docs/architecture/scope.md) keeps
 “implemented for learning” distinct from “required for a production PDS.”
+The [coverage matrix](docs/architecture/coverage.md) links every claimed topic
+to its explanation, runnable implementation, executable specification, and
+explicit exclusions.
 
 ## Specification baseline
 

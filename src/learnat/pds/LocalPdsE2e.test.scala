@@ -39,6 +39,18 @@ object LocalPdsE2eTests:
         equal(authenticated.flatMap(_.getSession).map(_.did), Right(pds.did))
       }
 
+      test("rotates refresh tokens and revokes an authenticated client") {
+        val original = client
+          .login(AtIdentifier.HandleIdentifier(handle), "test-password".toCharArray).toOption.get
+        val refreshed = original.refreshSession
+        assert(refreshed.isRight, refreshed)
+        assert(refreshed.toOption.get.session.accessJwt != original.session.accessJwt)
+        assert(refreshed.toOption.get.session.refreshJwt != original.session.refreshJwt)
+        isLeft(original.refreshSession)
+        assert(refreshed.flatMap(_.revokeSession).isRight)
+        isLeft(refreshed.flatMap(_.getSession))
+      }
+
       val authenticated = client
         .login(AtIdentifier.HandleIdentifier(handle), "test-password".toCharArray).toOption.get
       var generatedKey: Option[RecordKey] = None

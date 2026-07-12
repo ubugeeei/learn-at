@@ -6,6 +6,9 @@ Optimize first for learnability, then interoperability and explicit security
 boundaries. Brevity is not itself a goal. Use the JDK for plumbing outside the
 protocol core; keep central wire formats visible in this repository.
 
+The evidence for each completed reference-scope capability is indexed in the
+[coverage matrix](coverage.md).
+
 ## Dependency policy
 
 Runtime and test dependencies are zero by default.

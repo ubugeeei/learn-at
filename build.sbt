@@ -4,6 +4,7 @@ ThisBuild / version := "0.1.0-SNAPSHOT"
 
 lazy val verify = taskKey[Unit]("Run the dependency-free test suite")
 lazy val verifyEnglish = taskKey[Unit]("Reject Japanese prose from the English handbook")
+lazy val verifyCoverage = taskKey[Unit]("Check chapter and colocated-test coverage")
 
 lazy val root = project
   .in(file("."))
@@ -40,9 +41,26 @@ lazy val root = project
       }
       if (violations.nonEmpty) sys.error(s"Japanese text found in English repository files: ${violations.mkString(", ")}")
     },
+    verifyCoverage := {
+      val base = baseDirectory.value
+      val coverage = IO.read(base / "docs" / "architecture" / "coverage.md")
+      val chapters = ((base / "docs") * "[0-9][0-9]-*.md").get
+      val missingChapters = chapters.filterNot(file => coverage.contains(s"`${file.getName}`"))
+      val featureDirectories = (base / "src" / "learnat").listFiles.filter(_.isDirectory).toVector
+      val missingTests = featureDirectories.filter { directory =>
+        val scalaFiles = (directory * "*.scala").get
+        scalaFiles.exists(file => !file.getName.endsWith(".test.scala")) &&
+        !scalaFiles.exists(_.getName.endsWith(".test.scala"))
+      }
+      val failures =
+        missingChapters.map(file => s"chapter missing from coverage matrix: ${file.getName}") ++
+        missingTests.map(directory => s"implementation directory has no colocated test: ${directory.getName}")
+      if (failures.nonEmpty) sys.error(failures.mkString("\n"))
+    },
     verify := {
       scalafmtCheckAll.value
       verifyEnglish.value
+      verifyCoverage.value
       (Test / runMain).toTask(" learnat.tests.AllTests").value
     }
   )

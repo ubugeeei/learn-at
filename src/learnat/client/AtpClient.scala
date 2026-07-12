@@ -140,7 +140,7 @@ final class AtpClient private (val service: URI, private val xrpc: XrpcClient):
 
   private def fromXrpc(error: XrpcError): ClientError = ClientError(error.description)
 
-  private def decodeSession(json: Json): Either[ClientError, LegacySession] =
+  private[client] def decodeSession(json: Json): Either[ClientError, LegacySession] =
     for
       didText <- stringField(json, "did")
       did <- Did.parse(didText).left.map(error => ClientError(error.toString))
@@ -229,6 +229,22 @@ object AtpClient:
 
 /** Legacy-authenticated record mutation client. */
 final case class AuthenticatedAtpClient(client: AtpClient, session: LegacySession):
+  /**
+   * Atomically rotates the legacy refresh token and returns a client carrying the replacement
+   * access/refresh pair. The current instance is intentionally immutable; callers must discard it
+   * after success because its refresh token has been revoked by the server.
+   */
+  def refreshSession: Either[ClientError, AuthenticatedAtpClient] = client
+    .procedure("com.atproto.server.refreshSession", Json.obj(), session.refreshJwt)
+    .flatMap(client.decodeSession).map(replacement => AuthenticatedAtpClient(client, replacement))
+
+  /**
+   * Revokes the current access session. A successful response means later use of this access token
+   * must fail; it does not delete repository data or the account.
+   */
+  def revokeSession: Either[ClientError, Unit] = client
+    .procedure("com.atproto.server.deleteSession", Json.obj(), session.accessJwt).map(_ => ())
+
   /** Creates a record; omitting rkey lets the PDS generate a TID. */
   def createRecord(
       collection: Nsid,

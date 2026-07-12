@@ -18,6 +18,7 @@ object AllTests:
     RepositoryTests.run()
     AuthTests.run()
     OAuthTests.run()
+    ClientMainTests.run()
     LocalPdsE2eTests.run()
     LocalPdsPersistenceTests.run()
     SyncTests.run()

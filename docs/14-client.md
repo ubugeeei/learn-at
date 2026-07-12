@@ -51,6 +51,13 @@ client.login(identifier, passwordChars)
 
 The returned `AuthenticatedAtpClient` owns a `LegacySession` and adds create, put, delete, and get-session calls. The password character array is cleared after request construction. A JVM `String` still exists while JSON is encoded, so this is not secure hardware handling.
 
+Legacy sessions are immutable values. `refreshSession` consumes the current
+refresh token server-side and returns a new `AuthenticatedAtpClient`; continuing
+to use the old value is an error because token rotation revoked it. `revokeSession`
+revokes the access session but does not delete records or the account. The E2E
+suite proves replacement tokens work, reused refresh tokens fail, and revoked
+access tokens can no longer call `getSession`.
+
 Legacy sessions are included because their single request makes the first auth boundary observable. User-facing network clients should finish at the OAuth chapter instead.
 
 ## CLI
@@ -175,5 +182,4 @@ $ nix develop --command sbt verify
 1. Add a `reverse` option to the CLI list command.
 2. Add an export command that immediately verifies the CAR before writing it.
 3. Preserve `XrpcError.Remote` fields in `ClientError` so retry policy can distinguish 400, 401, 429, and 5xx.
-4. Add a session refresh method and test that an access token cannot be used as a refresh token.
-5. Add an OAuth-backed authenticated client without changing public read methods.
+4. Add an OAuth-backed authenticated client without changing public read methods.

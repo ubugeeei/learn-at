@@ -179,8 +179,8 @@ Do not expose this server publicly without replacing or adding:
 - HTTPS termination with trusted proxy/header policy;
 - OAuth discovery, PAR, PKCE, DPoP, nonce handling, and permissions;
 - account creation/recovery/migration and PLC rotation-key custody;
-- blob storage and upload validation;
-- WebSocket firehose, cursor persistence, and backpressure;
+- production blob validation, quotas, garbage collection, and media isolation;
+- restart-durable firehose retention and per-connection backpressure;
 - rate limits, abuse/spam controls, moderation, and takedowns;
 - SSRF-hardened identity resolution;
 - metrics, structured logs, tracing, backup, restore, and disaster drills;

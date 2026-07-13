@@ -4,13 +4,21 @@ import io.undertow.Undertow
 import io.undertow.server.HttpHandler
 import io.undertow.server.HttpServerExchange
 import io.undertow.util.Headers
+import io.undertow.websockets.WebSocketConnectionCallback
+import io.undertow.websockets.WebSocketProtocolHandshakeHandler
+import io.undertow.websockets.core.WebSocketCallback
+import io.undertow.websockets.core.WebSocketChannel
+import io.undertow.websockets.core.WebSockets
+import io.undertow.websockets.spi.WebSocketHttpExchange
 import java.net.InetSocketAddress
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.nio.ByteBuffer
 import java.nio.file.Path
 import java.util.Arrays
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicReference
 import learnat.crypto.P256KeyPair
 import learnat.crypto.P256PublicKey
 import learnat.ipld.DagJson
@@ -27,7 +35,11 @@ import learnat.syntax.Nsid
 import learnat.syntax.RecordKey
 import learnat.syntax.TidGenerator
 import learnat.sync.EventBatch
+import learnat.sync.EventFrame
+import learnat.sync.EventStreamCodec
+import learnat.sync.EventSubscription
 import learnat.sync.RetainedEventLog
+import learnat.sync.SyncError
 
 /** A startup/configuration failure before the local PDS begins accepting requests. */
 final case class LocalPdsError(message: String):
@@ -74,7 +86,7 @@ final class RunningLocalPds private[pds] (
     server.stop()
     ()
 
-/** Starts the dependency-free local PDS used by the client/server hands-on. */
+/** Starts the local PDS used by the client/server hands-on. */
 object LocalPds:
   def start(config: LocalPdsConfig): Either[LocalPdsError, RunningLocalPds] =
     if config.port < 0 || config.port > 65535 then
@@ -89,7 +101,8 @@ object LocalPds:
       try
         val routes = new LocalPdsRoutes(config.maxJsonBodyBytes, config.maxBlobBytes)
         val createdServer = Undertow.builder().addHttpListener(config.port, config.bindAddress)
-          .setWorkerThreads(config.workerThreads).setHandler(new UndertowPdsHandler(routes)).build()
+          .setWorkerThreads(config.workerThreads).setHandler(new LocalPdsRootHandler(routes))
+          .build()
         createdServer.start()
         server = Some(createdServer)
         val actualPort = createdServer.getListenerInfo.get(0).getAddress
@@ -178,6 +191,8 @@ final private class LocalPdsState(
       event <- eventLog.append("#commit", body).left
         .map(error => PdsFailure(500, "InternalServerError", error.message))
       _ <- persistOrRollback(updated, event.sequence)
+      _ <- eventLog.publishLast(event.sequence).left
+        .map(error => PdsFailure(500, "InternalServerError", error.message))
     yield
       repositoryState = updated
       updated
@@ -298,6 +313,67 @@ final private class UndertowPdsHandler(routes: LocalPdsRoutes) extends HttpHandl
     if exchange.isInIoThread then exchange.dispatch(this)
     else routes.handle(new UndertowPdsHttpExchange(exchange))
 
+/** Routes the streaming XRPC endpoint to WebSocket and every other request to normal HTTP. */
+final private class LocalPdsRootHandler(routes: LocalPdsRoutes) extends HttpHandler:
+  private val http = new UndertowPdsHandler(routes)
+  private val firehose = new WebSocketProtocolHandshakeHandler(new SubscribeReposCallback(routes))
+
+  override def handleRequest(exchange: HttpServerExchange): Unit =
+    if exchange.getRequestPath == "/xrpc/com.atproto.sync.subscribeRepos" then
+      firehose.handleRequest(exchange)
+    else http.handleRequest(exchange)
+
+/** Turns one accepted WebSocket into an ordered retained-and-live event subscription. */
+final private class SubscribeReposCallback(routes: LocalPdsRoutes)
+    extends WebSocketConnectionCallback:
+  override def onConnect(exchange: WebSocketHttpExchange, channel: WebSocketChannel): Unit =
+    parseCursor(exchange) match
+      case Left(error)   => sendErrorAndClose(channel, "InvalidRequest", error)
+      case Right(cursor) =>
+        val subscription = AtomicReference[EventSubscription]()
+        val callback = new WebSocketCallback[Void]:
+          override def complete(channel: WebSocketChannel, context: Void): Unit = ()
+          override def onError(channel: WebSocketChannel, context: Void, error: Throwable): Unit =
+            Option(subscription.get()).foreach(_.close())
+            channel.close()
+        routes.subscribeEvents(cursor) { event =>
+          WebSockets.sendBinary(ByteBuffer.wrap(event.bytes), channel, callback)
+        } match
+          case Right(value) =>
+            subscription.set(value)
+            channel.addCloseTask(closed =>
+              val _ = closed
+              value.close()
+            )
+            if channel.isOpen then channel.resumeReceives() else value.close()
+          case Left(error) =>
+            val name =
+              if error.message.startsWith("ConsumerTooSlow") then "ConsumerTooSlow"
+              else if error.message.startsWith("FutureCursor") then "FutureCursor"
+              else "InternalError"
+            sendErrorAndClose(channel, name, error.message)
+
+  private def parseCursor(exchange: WebSocketHttpExchange): Either[String, Option[Long]] =
+    Option(exchange.getRequestParameters.get("cursor")) match
+      case None                               => Right(None)
+      case Some(values) if values.size() == 1 =>
+        values.get(0).toLongOption.filter(_ >= 0)
+          .toRight("cursor must be one non-negative 64-bit integer").map(Some(_))
+      case Some(_) => Left("cursor must occur at most once")
+
+  private def sendErrorAndClose(channel: WebSocketChannel, name: String, message: String): Unit =
+    EventStreamCodec.encode(EventFrame.Error(name, Some(message))) match
+      case Right(bytes) => WebSockets.sendBinary(
+          ByteBuffer.wrap(bytes),
+          channel,
+          new WebSocketCallback[Void]:
+            override def complete(channel: WebSocketChannel, context: Void): Unit = WebSockets
+              .sendClose(1000, name, channel, null)
+            override def onError(channel: WebSocketChannel, context: Void, error: Throwable): Unit =
+              channel.close()
+        )
+      case Left(_) => channel.close()
+
 final private class LocalPdsRoutes(maxJsonBodyBytes: Int, maxBlobBytes: Int):
   @volatile
   private var stateValue: Option[LocalPdsState] = None
@@ -305,6 +381,11 @@ final private class LocalPdsRoutes(maxJsonBodyBytes: Int, maxBlobBytes: Int):
   def attach(state: LocalPdsState): Unit = stateValue = Some(state)
   private def state: LocalPdsState = stateValue
     .getOrElse(throw IllegalStateException("local PDS routes are not initialized"))
+
+  /** Atomically replays retained events and begins live delivery for one WebSocket. */
+  def subscribeEvents(cursor: Option[Long])(
+      onEvent: learnat.sync.RetainedEvent => Unit
+  ): Either[SyncError, EventSubscription] = state.eventLog.subscribe(cursor)(onEvent)
 
   def handle(exchange: PdsHttpExchange): Unit =
     try

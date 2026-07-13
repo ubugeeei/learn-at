@@ -43,7 +43,7 @@ moderation UI a PDS responsibility.
 - bounded content-addressed blob upload, persistence, retrieval, and verification;
 - full-CAR polling mirror implemented;
 - legacy session implemented;
-- resumable server firehose, production media processing, OAuth server, and multi-account storage
+- restart-durable server firehose, production media processing, OAuth server, and multi-account storage
   remain explicit future slices.
 
 ### Interoperability client

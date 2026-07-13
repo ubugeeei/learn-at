@@ -62,7 +62,7 @@ flowchart LR
 | P-256 and signed repository | `13-signed-repository.md` | `crypto/P256.scala`, `repo/Repository.scala` | official crypto and repository tests | covered |
 | typed client and CLI | `14-client.md` | `client/` | adjacent CLI tests and real-socket PDS E2E tests | covered |
 | persistent local PDS and blobs | `15-local-pds.md` | `pds/` | auth, record/blob persistence, corruption, and E2E tests | covered for one account |
-| full-CAR mirror, event codec/retention, durable cursor | `16-sync.md` | `sync/Sync.scala`, `sync/EventLog.scala`, `sync/CursorStore.scala` | mirror, canonical framing, cursor-window, corruption, and crash-boundary tests | covered; PDS transport excluded below |
+| full-CAR mirror, event retention, WebSocket publication, durable cursor | `16-sync.md` | `sync/Sync.scala`, `sync/EventLog.scala`, `sync/CursorStore.scala`, `pds/LocalPds.scala` | mirror, replay/live WebSocket E2E, cursor-window, corruption, and crash-boundary tests | covered; server event retention is process-local |
 | OAuth/DPoP protocol primitives | `17-oauth.md` | `oauth/` | discovery, binding, replay, nonce, and signature tests | covered as primitives |
 | federation roles and lab | `18-federation.md` | two-PDS isolation and sync components | PDS E2E and sync suites | covered as a lab |
 | production review | `19-production-readiness.md` | evidence checklist, not a deployment claim | CI is evidence only for code-level gates | covered as an assessment |
@@ -102,7 +102,7 @@ These are not hidden TODOs. They are separate systems or production milestones:
 | --- | --- | --- |
 | multi-account database and concurrent writers | requires transactional schema, migrations, locking, quota, and recovery design | chapter 19, gates 3–5 |
 | production media processing | local content-addressed upload/get is covered; MIME sniffing, malware isolation, quotas, reference GC, and CDN lifecycle require an operated pipeline | chapters 15 and 19 |
-| local WebSocket firehose producer | consumer framing is covered, but durable event retention and cursor policy must be designed together | chapter 16 exercises |
+| durable firehose retention across PDS restart | live/replay transport and cursor policy are covered, but the retained server log is process-local | chapter 16 missing-work section |
 | incremental repository application | full verified resync is the implemented recovery oracle; incremental operations need durable idempotency | chapter 16 |
 | browser OAuth authorization service | primitives are covered; UI sessions, consent, client metadata policy, recovery, and abuse controls are an internet service | chapter 17 and chapter 19 gate 6 |
 | Relay/AppView/Labeler at internet scale | indexing and moderation are independently operated products, not PDS helper classes | chapter 18 |

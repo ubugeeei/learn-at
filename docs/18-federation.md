@@ -56,8 +56,9 @@ network policy, not cryptographic proof that a rejected repository was invalid.
 
 The current `FirehoseClient` connects to a `subscribeRepos` endpoint and decodes
 frames. `RepositoryMirror` performs the recovery path with `getLatestCommit`
-and a complete verified CAR. The local PDS does not yet publish the WebSocket
-stream, and this project does not implement an aggregated Relay.
+and a complete verified CAR. The local PDS publishes its own resumable WebSocket
+stream, but this project does not discover multiple PDS instances or implement
+an aggregated Relay.
 
 ## AppView
 
@@ -202,8 +203,8 @@ a complete migration plan.
 1. Build a small in-memory AppView table keyed by `(DID, collection, rkey)` and
    apply two complete `MirrorSnapshot` values idempotently.
 2. Simulate update, duplicate update, delete, and out-of-order delivery.
-3. Add a local WebSocket producer with sequence cursors to each PDS, then merge
-   both streams in a toy Relay without changing repository verification.
+3. Subscribe to both local PDS streams, then design how a Relay would merge two
+   independent sequence spaces without changing repository verification.
 4. Introduce a cursor gap and prove the consumer performs a full CAR resync.
 5. Define a Labeler trust configuration where two sources disagree; keep both
    signed assertions while producing a deterministic client decision.

@@ -1,6 +1,11 @@
 package learnat.tests
 
+import java.net.http.WebSocket
 import java.time.Duration
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import scala.jdk.CollectionConverters.*
 import learnat.client.AtpClient
 import learnat.ipld.DagCbor
 import learnat.ipld.Ipld
@@ -8,6 +13,7 @@ import learnat.pds.LocalPds
 import learnat.pds.LocalPdsConfig
 import learnat.sync.EventFrame
 import learnat.sync.EventStreamCodec
+import learnat.sync.FirehoseClient
 import learnat.sync.RepositoryMirror
 import learnat.sync.SyncResult
 import learnat.syntax.AtIdentifier
@@ -81,7 +87,63 @@ object SyncTests:
         isLeft(invalid.syncOnce())
         equal(invalid.snapshot, None)
       }
+
+      test("replays retained commits and then streams live commits after the cursor") {
+        val replayed = ConcurrentLinkedQueue[EventFrame]()
+        val replayLatch = CountDownLatch(1)
+        val firstSocket = FirehoseClient.connect(pds.service) { frame =>
+          frame.foreach { value =>
+            replayed.add(value)
+            replayLatch.countDown()
+          }
+        }.toOption.get.join()
+        try
+          assert(replayLatch.await(5, TimeUnit.SECONDS), "timed out waiting for retained event")
+          equal(replayed.iterator().asScala.map(sequence).toVector, Vector(1L))
+        finally firstSocket.sendClose(WebSocket.NORMAL_CLOSURE, "test complete").join()
+
+        val live = ConcurrentLinkedQueue[EventFrame]()
+        val liveLatch = CountDownLatch(1)
+        val resumedSocket = FirehoseClient.connect(pds.service, Some(1L)) { frame =>
+          frame.foreach { value =>
+            live.add(value)
+            liveLatch.countDown()
+          }
+        }.toOption.get.join()
+        try
+          val authenticated = client
+            .login(AtIdentifier.HandleIdentifier(handle), "sync-password".toCharArray).toOption.get
+          val liveKey = RecordKey.parse("live-record").toOption.get
+          val record = Ipld.obj("$type" -> Ipld.Text(collection.value), "text" -> Ipld.Text("live"))
+          assert(authenticated.putRecord(collection, liveKey, record).isRight)
+          assert(liveLatch.await(5, TimeUnit.SECONDS), "timed out waiting for live event")
+          equal(live.iterator().asScala.map(sequence).toVector, Vector(2L))
+        finally resumedSocket.sendClose(WebSocket.NORMAL_CLOSURE, "test complete").join()
+      }
+
+      test("returns a canonical firehose error frame for a future cursor") {
+        val received = ConcurrentLinkedQueue[EventFrame]()
+        val latch = CountDownLatch(1)
+        val socket = FirehoseClient.connect(pds.service, Some(999L)) { frame =>
+          frame.foreach { value =>
+            received.add(value)
+            latch.countDown()
+          }
+        }.toOption.get.join()
+        assert(latch.await(5, TimeUnit.SECONDS), "timed out waiting for cursor error")
+        equal(
+          received.peek(),
+          EventFrame.Error("FutureCursor", Some("FutureCursor: 999 is newer than producer head 2"))
+        )
+        if !socket.isOutputClosed then
+          socket.sendClose(WebSocket.NORMAL_CLOSURE, "test complete").join()
+      }
     }
+
+  private def sequence(frame: EventFrame): Long = frame match
+    case EventFrame.Message("#commit", Ipld.Map(fields)) => fields.toMap.get("seq")
+        .collect { case Ipld.Integer(value) => value }.get
+    case other => throw AssertionError(s"expected #commit event, found $other")
 
   private def withPds(body: learnat.pds.RunningLocalPds => Unit): Unit =
     val password = "sync-password".toCharArray

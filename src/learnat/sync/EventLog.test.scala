@@ -19,8 +19,8 @@ object EventLogTests:
 
     test("assigns monotonic sequences and resumes strictly after a cursor") {
       val log = RetainedEventLog.create(4).toOption.get
-      val first = log.append("#commit", Ipld.obj("did" -> Ipld.Text("did:plc:first"))).toOption.get
-      val second = log.append("#commit", Ipld.obj("did" -> Ipld.Text("did:plc:first"))).toOption.get
+      val first = appendPublished(log, Ipld.obj("did" -> Ipld.Text("did:plc:first")))
+      val second = appendPublished(log, Ipld.obj("did" -> Ipld.Text("did:plc:first")))
       equal(first.sequence, 1L)
       equal(second.sequence, 2L)
       val resumed = log.readAfter(Some(1)).toOption.get
@@ -36,7 +36,7 @@ object EventLogTests:
 
     test("fails closed for expired and future cursors") {
       val log = RetainedEventLog.create(2).toOption.get
-      (1 to 3).foreach(_ => assert(log.append("#commit", Ipld.obj()).isRight))
+      (1 to 3).foreach(_ => appendPublished(log, Ipld.obj()))
       isLeft(log.readAfter(Some(0)))
       equal(log.readAfter(Some(1)).map(_.events.map(_.sequence)), Right(Vector(2L, 3L)))
       isLeft(log.readAfter(Some(4)))
@@ -44,7 +44,7 @@ object EventLogTests:
 
     test("bounds batches and returns defensive frame copies") {
       val log = RetainedEventLog.create(3).toOption.get
-      (1 to 3).foreach(_ => assert(log.append("#commit", Ipld.obj()).isRight))
+      (1 to 3).foreach(_ => appendPublished(log, Ipld.obj()))
       val one = log.readAfter(None, limit = 1).toOption.get
       equal(one.events.length, 1)
       one.events.head.bytes(0) = 0
@@ -55,10 +55,39 @@ object EventLogTests:
 
     test("rolls back only the unpublished tail event") {
       val log = RetainedEventLog.create(3).toOption.get
-      val first = log.append("#commit", Ipld.obj()).toOption.get
+      val first = appendPublished(log, Ipld.obj())
       val second = log.append("#commit", Ipld.obj()).toOption.get
       isLeft(log.rollbackLast(first.sequence))
       equal(log.rollbackLast(second.sequence), Right(()))
       equal(log.readAfter(None).map(_.events.map(_.sequence)), Right(Vector(1L)))
       equal(log.append("#commit", Ipld.obj()).map(_.sequence), Right(2L))
     }
+
+    test("publishes only durable events and replays before live delivery") {
+      val log = RetainedEventLog.create(4).toOption.get
+      val unpublished = log.append("#commit", Ipld.obj()).toOption.get
+      equal(log.readAfter(None).map(_.events), Right(Vector.empty))
+
+      assert(log.publishLast(unpublished.sequence).isRight)
+      var delivered = Vector.empty[Long]
+      val subscription = log.subscribe(None)(event => delivered :+= event.sequence).toOption.get
+      appendPublished(log, Ipld.obj())
+      equal(delivered, Vector(1L, 2L))
+
+      subscription.close()
+      subscription.close()
+      appendPublished(log, Ipld.obj())
+      equal(delivered, Vector(1L, 2L))
+    }
+
+    test("rejects invalid cursors without registering a subscriber") {
+      val log = RetainedEventLog.create(2).toOption.get
+      appendPublished(log, Ipld.obj())
+      isLeft(log.subscribe(Some(2))(_ => ()))
+      isLeft(log.subscribe(Some(-1))(_ => ()))
+    }
+
+  private def appendPublished(log: RetainedEventLog, body: Ipld) =
+    val event = log.append("#commit", body).toOption.get
+    assert(log.publishLast(event.sequence).isRight)
+    event

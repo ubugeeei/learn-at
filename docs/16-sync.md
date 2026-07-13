@@ -70,7 +70,8 @@ Look for `Repository synchronization` in the output. Then read
 that failed verification leaves the mirror empty.
 
 The local PDS implements `getLatestCommit` and `getRepo`, so this polling path is
-fully executable. It does **not** yet publish a WebSocket event stream.
+fully executable. It also publishes repository writes from the same origin over
+the WebSocket stream described below.
 
 ## Event-stream framing
 
@@ -128,10 +129,54 @@ producer log.
 The local PDS now constructs a `#commit` event inside the same synchronized
 state transition as each repository create, update, or delete. The event
 contains the DID, commit CID, revision, previous revision, operation path/CID,
-and a complete CAR block slice. Encoding/append happens before persistence. If
-repository persistence fails, only the unpublished tail event is rolled back;
-the current in-memory head is not advanced. A non-tail rollback is rejected so
-concurrent publication cannot erase another write.
+and a complete CAR block slice. Encoding/retention happens before persistence,
+but publication happens only after persistence succeeds. If persistence fails,
+only the unpublished tail event is rolled back; the current in-memory head is
+not advanced and subscribers never see the failed write. A non-tail rollback
+is rejected so concurrent publication cannot erase another write.
+
+## From an HTTP request to a live WebSocket event
+
+The PDS uses one origin for normal XRPC and streaming XRPC. Undertow routes only
+the exact subscription path to its WebSocket handshake; all other paths keep
+using the ordinary request/response router:
+
+```mermaid
+sequenceDiagram
+  participant C as "FirehoseClient"
+  participant W as "WebSocket route"
+  participant L as "RetainedEventLog"
+  participant P as "Repository transaction"
+  C->>W: "GET subscribeRepos?cursor=41 + Upgrade"
+  W->>L: "validate cursor and subscribe"
+  L-->>C: "replay seq 42..head"
+  Note over L,C: "replay and registration share one lock"
+  P->>L: "retain unpublished commit"
+  P->>P: "persist repository"
+  P->>L: "publish durable commit"
+  L-->>C: "live next sequence"
+  C-xW: "normal close"
+  W->>L: "remove subscription"
+```
+
+Cursor validation, retained replay, and live registration are one atomic event
+log operation. Therefore a write cannot land in the small interval between
+"finished replay" and "registered for live events". Replay and live frames are
+enqueued in increasing sequence order. Closing the socket removes the callback;
+closing the returned registration twice is safe.
+
+Malformed cursors produce an `InvalidRequest` event-error frame. A cursor ahead
+of the producer produces `FutureCursor`; one older than the bounded window
+produces `ConsumerTooSlow`. In the last case a consumer must run the verified
+full-CAR recovery path and establish a new checkpoint.
+
+The declarative tests cover the protocol at two levels:
+
+- `EventLogTests` specifies unpublished visibility, replay-before-live order,
+  cursor rejection, defensive copies, retention, rollback, and idempotent close.
+- `SyncTests` opens a real JDK WebSocket against the real Undertow PDS, checks a
+  retained event, reconnects from its cursor, performs a repository write, and
+  checks the next live event plus a canonical future-cursor error.
 
 The callback still receives generic IPLD. A later application layer should
 dispatch on the event type and validate its body against the corresponding
@@ -193,17 +238,19 @@ must share a stronger external transaction. Tests cover both crash boundaries.
    `FirehoseClient`.
 5. Replace the file checkpoint with a database transaction shared by an
    idempotent materialized view.
-6. Add the local PDS WebSocket producer and test reconnecting from a cursor.
+6. Set event retention to two, publish three writes, then reconnect from cursor
+   zero and explain why full resynchronization is required.
 
 ## What is still missing
 
 This chapter provides a verified full-repository mirror, canonical producer and
-consumer framing, bounded server retention, real WebSocket consumer, and durable
-at-least-once cursor checkpoint. It does not yet
-implement incremental commit semantics, blob transfer, local Relay behavior,
-backpressure queues, or connection of the retained log to a local PDS WebSocket
-upgrade. Those omissions are explicit: retention without transactional write
-publication and transport is not yet a complete producer.
+consumer framing, bounded server retention, same-origin WebSocket publication,
+cursor resumption, and durable at-least-once consumer checkpoints. It does not
+yet implement incremental commit application, durable server event retention
+across a PDS restart, local Relay behavior, or a bounded per-connection
+backpressure queue. Blob HTTP upload/download exists in the local PDS, while
+automatic fetching of blobs referenced by streamed records remains application
+work.
 
 ## Specifications
 

@@ -166,9 +166,10 @@ not the authorization UI, durable session store, or complete HTTP server flow.
 - Measure lag from source revision to indexed view.
 - Define Relay crawl, retention, takedown, and reintroduction policy.
 
-The current mirror proves a transactional full-CAR recovery path. Durable
-cursors, incremental commit application, and the local firehose producer remain
-unfinished.
+The current mirror proves a transactional full-CAR recovery path, and the local
+PDS proves retained replay plus live WebSocket delivery. Incremental commit
+application, restart-durable server retention, and bounded connection queues
+remain unfinished.
 
 ## Gate 8: rate limits and resource isolation
 
@@ -264,7 +265,7 @@ Safe learning use:
 Not approved for internet production:
 
 - plaintext local signing-key file;
-- no HTTPS, multi-account database, blobs, durable firehose, or account
+- no HTTPS, multi-account database, production blob pipeline, durable firehose, or account
   creation/recovery/migration;
 - no complete OAuth server/client orchestration;
 - no distributed rate limit, abuse/moderation operation, backup service, SLO,

@@ -57,15 +57,14 @@ example must not depend on one natural language.
 
 ## ADR-008: Keep protocol routing independent of the HTTP engine
 
-`LocalPdsHandler` consumes a small `PdsHttpExchange` boundary rather than using
-JDK `HttpExchange` throughout its routing and endpoint logic. The current JDK
-21 `HttpServer` adapter remains sufficient for ordinary XRPC, but that JDK
-version closes streams on a `101 Switching Protocols` response and cannot host
-the required `subscribeRepos` WebSocket at the same origin. OpenJDK tracks
+`LocalPdsRoutes` consumes a small `PdsHttpExchange` boundary rather than binding
+endpoint logic to one server library. JDK 21 `HttpServer` closes streams on a
+`101 Switching Protocols` response and cannot host the required
+`subscribeRepos` WebSocket at the same origin. OpenJDK tracks
 [native upgrade support](https://bugs.openjdk.org/browse/JDK-8368695) for a
 later release.
 
 Do not work around this with a second firehose port or long polling: both would
 teach a wire contract different from atproto. The narrow exchange boundary
-allows replacement by a WebSocket-capable engine while retaining the already
+allowed the HTTP adapter to be replaced by Undertow while retaining the already
 tested identity, authentication, repository, blob, and error behavior.

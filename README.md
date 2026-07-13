@@ -80,9 +80,9 @@ $ LEARN_AT_PASSWORD=local-secret nix develop --command sbt \
     'run client post http://localhost:2583 alice.test com.example.note "hello"'
 ```
 
-The local PDS persists its development key, records, and last revision under
-`data/local-pds` by default. Keep the same port across restarts because it is
-part of the localhost `did:web` identifier.
+The local PDS persists its development key, records, last revision, and bounded
+firehose history under `data/local-pds` by default. Keep the same port across
+restarts because it is part of the localhost `did:web` identifier.
 
 Start with the [learning path](docs/00-learning-path.md). Implementation
 chapters point to the matching source and explain why it has its current shape,

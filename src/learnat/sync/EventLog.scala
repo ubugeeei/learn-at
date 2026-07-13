@@ -119,6 +119,11 @@ final class RetainedEventLog private (capacity: Int):
       case _ => Left(SyncError(s"cannot roll back non-tail event sequence $sequence"))
   }
 
+  /** Returns defensive canonical frames for an atomic repository-state replacement. */
+  private[learnat] def framesForPersistence: Vector[Array[Byte]] = synchronized {
+    retained.map(_.bytes.clone())
+  }
+
   private def copyOf(event: RetainedEvent): RetainedEvent = event.copy(bytes = event.bytes.clone())
 
   private def eventsAfterCursor(cursor: Option[Long]): Either[SyncError, Vector[RetainedEvent]] =
@@ -139,3 +144,40 @@ object RetainedEventLog:
     new RetainedEventLog(capacity),
     SyncError("event retention capacity must be positive")
   )
+
+  /** Restores a contiguous retained suffix that was committed with repository state. */
+  private[learnat] def restore(
+      capacity: Int,
+      frames: Vector[Array[Byte]]
+  ): Either[SyncError, RetainedEventLog] =
+    for
+      log <- create(capacity)
+      events <- frames
+        .foldLeft[Either[SyncError, Vector[RetainedEvent]]](Right(Vector.empty)) { (result, bytes) =>
+          for
+            values <- result
+            frame <- EventStreamCodec.decode(bytes)
+            sequence <- frame match
+              case EventFrame.Message(_, learnat.ipld.Ipld.Map(fields)) => fields.toMap
+                  .get("seq") match
+                  case Some(learnat.ipld.Ipld.Integer(value)) if value > 0 => Right(value)
+                  case _ => Left(SyncError("persisted event requires a positive seq"))
+              case _ => Left(SyncError("persisted event must be a message frame"))
+            _ <- Either.cond(
+              values.lastOption.forall(_.sequence + 1 == sequence),
+              (),
+              SyncError("persisted event sequences must be contiguous and increasing")
+            )
+          yield values :+ RetainedEvent(sequence, bytes.clone())
+        }
+      _ <- Either.cond(
+        events.lastOption.forall(_.sequence < Long.MaxValue),
+        (),
+        SyncError("persisted event sequence is exhausted")
+      )
+    yield
+      val retained = events.takeRight(capacity)
+      log.retained = retained
+      log.publishedThrough = retained.lastOption.map(_.sequence).getOrElse(0L)
+      log.nextSequence = log.publishedThrough + 1
+      log

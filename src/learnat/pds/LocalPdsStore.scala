@@ -19,12 +19,14 @@ import learnat.syntax.Did
 import learnat.syntax.Nsid
 import learnat.syntax.RecordKey
 import learnat.syntax.Tid
+import learnat.sync.RetainedEventLog
 
 /** Restored signing material and record values before a fresh commit is produced. */
 final private[pds] case class StoredPdsState(
     signingKey: P256KeyPair,
     records: Vector[RepositoryRecord],
-    lastRevision: Tid
+    lastRevision: Tid,
+    eventFrames: Vector[Array[Byte]]
 )
 
 /**
@@ -51,8 +53,11 @@ final private[pds] class LocalPdsStore(directory: Path, maxStateBytes: Int = 32 
               .map(error => LocalPdsError(s"invalid PDS state JSON: $error"))
             version <- json.field("version").flatMap(_.asLong).left
               .map(error => LocalPdsError(error.message))
-            _ <- Either
-              .cond(version == 1, (), LocalPdsError(s"unsupported PDS state version $version"))
+            _ <- Either.cond(
+              version == 1 || version == 2,
+              (),
+              LocalPdsError(s"unsupported PDS state version $version")
+            )
             didText <- json.field("did").flatMap(_.asString).left
               .map(error => LocalPdsError(error.message))
             _ <- Either.cond(
@@ -89,15 +94,36 @@ final private[pds] class LocalPdsStore(directory: Path, maxStateBytes: Int = 32 
                 value <- DagJson.decode(valueJson).left.map(error => LocalPdsError(error.toString))
               yield values :+ RepositoryRecord(collection, recordKey, value)
             }
-          yield Some(StoredPdsState(key, records, revision))
+            eventFrames <-
+              if version == 1 then Right(Vector.empty)
+              else
+                for
+                  eventsJson <- json.field("events").flatMap(_.asArray).left
+                    .map(error => LocalPdsError(error.message))
+                  frames <- eventsJson.foldLeft[Either[LocalPdsError, Vector[Array[Byte]]]](Right(
+                    Vector.empty
+                  )) { (result, item) =>
+                    for
+                      values <- result
+                      encoded <- item.asString.left.map(error => LocalPdsError(error.message))
+                      bytes <- decodeBase64(encoded, "event frame")
+                    yield values :+ bytes
+                  }
+                yield frames
+          yield Some(StoredPdsState(key, records, revision, eventFrames))
       catch
         case error: Exception =>
           Left(LocalPdsError(s"failed to read ${statePath.toAbsolutePath}: ${error.getMessage}"))
 
   /** Writes a complete replacement file, forces it, then atomically renames it. */
-  def save(did: Did, signingKey: P256KeyPair, repository: Repository): Either[LocalPdsError, Unit] =
+  def save(
+      did: Did,
+      signingKey: P256KeyPair,
+      repository: Repository,
+      eventLog: RetainedEventLog
+  ): Either[LocalPdsError, Unit] =
     val json = Json.obj(
-      "version" -> Json.Num(1),
+      "version" -> Json.Num(2),
       "did" -> Json.Str(did.value),
       "privateKeyPkcs8" ->
         Json.Str(Base64.getEncoder.encodeToString(signingKey.privateKeyPkcs8.toArray)),
@@ -109,7 +135,11 @@ final private[pds] class LocalPdsStore(directory: Path, maxStateBytes: Int = 32 
           "rkey" -> Json.Str(record.recordKey.value),
           "value" -> DagJson.encode(record.value)
         )
-      ))
+      )),
+      "events" -> Json.Arr(
+        eventLog.framesForPersistence
+          .map(bytes => Json.Str(Base64.getEncoder.encodeToString(bytes)))
+      )
     )
     val bytes = json.render.getBytes(StandardCharsets.UTF_8)
     if bytes.length > maxStateBytes then

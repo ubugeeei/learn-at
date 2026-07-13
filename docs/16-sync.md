@@ -246,9 +246,10 @@ must share a stronger external transaction. Tests cover both crash boundaries.
 This chapter provides a verified full-repository mirror, canonical producer and
 consumer framing, bounded server retention, same-origin WebSocket publication,
 cursor resumption, and durable at-least-once consumer checkpoints. It does not
-yet implement incremental commit application, durable server event retention
-across a PDS restart, local Relay behavior, or a bounded per-connection
-backpressure queue. Blob HTTP upload/download exists in the local PDS, while
+yet implement incremental commit application, local Relay behavior, or a
+bounded per-connection backpressure queue. File-backed PDS state retains the
+bounded server event suffix across restarts; an in-memory PDS intentionally does
+not. Blob HTTP upload/download exists in the local PDS, while
 automatic fetching of blobs referenced by streamed records remains application
 work.
 

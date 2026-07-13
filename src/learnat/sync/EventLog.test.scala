@@ -87,6 +87,25 @@ object EventLogTests:
       isLeft(log.subscribe(Some(-1))(_ => ()))
     }
 
+    test("restores canonical frames and continues their sequence") {
+      val original = RetainedEventLog.create(3).toOption.get
+      appendPublished(original, Ipld.obj())
+      appendPublished(original, Ipld.obj())
+      val restored = RetainedEventLog.restore(3, original.framesForPersistence).toOption.get
+      equal(restored.readAfter(Some(1)).map(_.events.map(_.sequence)), Right(Vector(2L)))
+      equal(appendPublished(restored, Ipld.obj()).sequence, 3L)
+    }
+
+    test("rejects corrupt or non-contiguous persisted event frames") {
+      val log = RetainedEventLog.create(3).toOption.get
+      appendPublished(log, Ipld.obj())
+      appendPublished(log, Ipld.obj())
+      appendPublished(log, Ipld.obj())
+      val frames = log.framesForPersistence
+      isLeft(RetainedEventLog.restore(3, Vector(Array[Byte](1, 2, 3))))
+      isLeft(RetainedEventLog.restore(3, Vector(frames.head, frames.last)))
+    }
+
   private def appendPublished(log: RetainedEventLog, body: Ipld) =
     val event = log.append("#commit", body).toOption.get
     assert(log.publishLast(event.sequence).isRight)

@@ -145,11 +145,21 @@ The optional state store persists:
 - the DID that owns the state;
 - PKCS#8 P-256 private key and public Multikey;
 - the last repository revision TID;
-- typed record collection/key/value triples.
+- typed record collection/key/value triples;
+- the bounded suffix of canonical firehose frames and their sequence numbers.
 
-Writes create a complete temporary JSON file, apply owner read/write permissions on POSIX systems, force the file to storage, and atomically rename it where the filesystem supports atomic moves. In-memory state is updated only after persistence succeeds.
+Repository data and retained events share version 2 of the state document. A
+write first constructs an unpublished event, then creates a complete temporary
+JSON file, applies owner read/write permissions on POSIX systems, forces the file
+to storage, and atomically renames it where the filesystem supports atomic
+moves. Only then does the PDS publish the event and advance in-memory state.
+Version 1 remains readable and starts with an empty event history.
 
-On restart, the server requires the stored DID to match the bound `did:web` origin, restores the same signing key and records, and seeds the new commit revision from the stored TID so revisions remain monotonic across clock stalls or rollback.
+On restart, the server requires the stored DID to match the bound `did:web`
+origin, restores the signing key, records, and canonical event suffix, and
+continues both repository revisions and event sequences. Invalid CBOR frames or
+non-contiguous event sequences fail startup instead of silently resetting a
+consumer cursor.
 
 The JSON format is intentionally inspectable for the hands-on. Its PKCS#8 private key is plaintext and protected only by filesystem permissions; production key custody must replace it.
 
@@ -180,7 +190,7 @@ Do not expose this server publicly without replacing or adding:
 - OAuth discovery, PAR, PKCE, DPoP, nonce handling, and permissions;
 - account creation/recovery/migration and PLC rotation-key custody;
 - production blob validation, quotas, garbage collection, and media isolation;
-- restart-durable firehose retention and per-connection backpressure;
+- a bounded per-connection firehose backpressure queue;
 - rate limits, abuse/spam controls, moderation, and takedowns;
 - SSRF-hardened identity resolution;
 - metrics, structured logs, tracing, backup, restore, and disaster drills;

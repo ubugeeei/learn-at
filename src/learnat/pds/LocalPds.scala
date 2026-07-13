@@ -131,10 +131,12 @@ object LocalPds:
             repository <- Repository
               .create(did, signingKey, TidGenerator.system(), initialRecords, previousRevision).left
               .map(error => LocalPdsError(error.toString))
-            eventLog <- RetainedEventLog.create(config.eventRetention).left
+            eventLog <- RetainedEventLog
+              .restore(config.eventRetention, restored.fold(Vector.empty)(_.eventFrames)).left
               .map(error => LocalPdsError(error.message))
-            _ <- store
-              .fold[Either[LocalPdsError, Unit]](Right(()))(_.save(did, signingKey, repository))
+            _ <- store match
+              case Some(value) => value.save(did, signingKey, repository, eventLog)
+              case None        => Right(())
           yield (did, signingKey, verifiedPassword, repository, store, eventLog)
         initialized.map { (did, signingKey, verifiedPassword, repository, store, eventLog) =>
           val state = LocalPdsState(
@@ -199,9 +201,11 @@ final private class LocalPdsState(
   }
 
   private def persistOrRollback(updated: Repository, sequence: Long): Either[PdsFailure, Unit] =
-    store.fold[Either[PdsFailure, Unit]](Right(()))(_.save(did, signingKey, updated).left.map(
-      error => PdsFailure(500, "InternalServerError", error.message)
-    )) match
+    val persistence = store match
+      case Some(value) => value.save(did, signingKey, updated, eventLog).left
+          .map(error => PdsFailure(500, "InternalServerError", error.message))
+      case None => Right(())
+    persistence match
       case success @ Right(_) => success
       case Left(failure)      => eventLog.rollbackLast(sequence) match
           case Right(_)       => Left(failure)

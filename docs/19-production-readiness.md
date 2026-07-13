@@ -167,9 +167,8 @@ not the authorization UI, durable session store, or complete HTTP server flow.
 - Define Relay crawl, retention, takedown, and reintroduction policy.
 
 The current mirror proves a transactional full-CAR recovery path, and the local
-PDS proves retained replay plus live WebSocket delivery. Incremental commit
-application, restart-durable server retention, and bounded connection queues
-remain unfinished.
+PDS proves restart-durable retained replay plus live WebSocket delivery.
+Incremental commit application and bounded connection queues remain unfinished.
 
 ## Gate 8: rate limits and resource isolation
 
